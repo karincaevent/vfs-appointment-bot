@@ -1,8 +1,7 @@
-supabase
-fastapi==0.104.1
-uvicorn==0.24.0
-pydantic==2.5.0
+supabase==2.3.4
+httpx==0.24.1
 playwright==1.40.0
 playwright-stealth==1.0.6
-httpx==0.25.2
 python-dotenv==1.0.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
