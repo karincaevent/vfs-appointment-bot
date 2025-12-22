@@ -90,9 +90,7 @@ async def scan_country(country_code: str, country_name: str):
         
         # Update last scan time in countries table
         supabase.table('countries_d257add4').update({
-    'last_checked_at': datetime.utcnow().isoformat()
-}).eq('code', country_code).execute()
-            'last_scan': datetime.utcnow().isoformat()
+            'last_checked_at': datetime.utcnow().isoformat()
         }).eq('code', country_code).execute()
         
     except Exception as e:
