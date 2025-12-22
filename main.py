@@ -28,7 +28,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def get_enabled_countries():
     """Fetch enabled countries from Supabase"""
     try:
-        response = supabase.table('countries').select('*').eq('enabled', True).order('priority').execute()
+       response = supabase.table('countries_d257add4').select('*').eq('enabled', True).order('priority').execute()
         if response.data:
             return response.data
         return []
@@ -45,7 +45,7 @@ async def log_scan(country_code: str, status: str, message: str):
             'message': message,
             'timestamp': datetime.utcnow().isoformat()
         }
-        supabase.table('logs').insert(log_entry).execute()
+        supabase.table('logs_d257add4').insert(log_entry).execute()
     except Exception as e:
         logger.error(f"Error logging scan: {e}")
 
@@ -89,7 +89,7 @@ async def scan_country(country_code: str, country_name: str):
                 status = 'error'
         
         # Update last scan time in countries table
-        supabase.table('countries').update({
+       supabase.table('countries_d257add4').update({
             'last_scan': datetime.utcnow().isoformat()
         }).eq('code', country_code).execute()
         
