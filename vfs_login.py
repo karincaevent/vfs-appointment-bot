@@ -70,7 +70,7 @@ async def login_to_vfs(
     
     Flow:
     1. Go DIRECTLY to login page (skip homepage!)
-    2. Check for maintenance mode
+    2. Check for maintenance mode and bot detection
     3. Enter email and password
     4. Read OTP from email (or wait for manual input)
     5. Enter OTP and verify
@@ -92,6 +92,7 @@ async def login_to_vfs(
     """
     try:
         # Go DIRECTLY to login page, not homepage!
+        # URL Format: https://visa.vfsglobal.com/tur/tr/nld/login
         login_url = f"https://visa.vfsglobal.com/tur/tr/{country_code.lower()}/login"
         
         logger.info(f"🌍 Navigating DIRECTLY to login page: {login_url}")
@@ -117,19 +118,93 @@ async def login_to_vfs(
         
         logger.info("📍 Step 1/6: Login page ready")
         
-        # DEBUG: Take screenshot
+        # ===== DEBUG SECTION: CRITICAL FOR DIAGNOSING ISSUES =====
+        
+        # DEBUG: Take screenshot AND encode as base64 for logging
         try:
-            await page.screenshot(path='/tmp/vfs_login_page.png')
-            logger.info("📸 Screenshot: /tmp/vfs_login_page.png")
+            screenshot_path = '/tmp/vfs_login_page.png'
+            await page.screenshot(path=screenshot_path, full_page=True)
+            logger.info(f"📸 Screenshot saved: {screenshot_path}")
+            
+            # Also encode as base64 so we can see it in logs
+            import base64
+            with open(screenshot_path, 'rb') as f:
+                screenshot_base64 = base64.b64encode(f.read()).decode()
+                logger.info(f"📸 Screenshot Base64 (first 200 chars): {screenshot_base64[:200]}...")
+                logger.info(f"📸 Screenshot length: {len(screenshot_base64)} characters")
         except Exception as e:
             logger.warning(f"Could not save screenshot: {e}")
         
+        # DEBUG: Get page HTML content
+        try:
+            page_html = await page.content()
+            logger.info(f"📄 Page HTML length: {len(page_html)} characters")
+            logger.info(f"📄 Page HTML preview (first 1000 chars):")
+            logger.info(page_html[:1000])
+            
+            # Check for common bot detection indicators
+            html_lower = page_html.lower()
+            
+            if 'cloudflare' in html_lower:
+                logger.warning("⚠️  CLOUDFLARE DETECTED in page HTML!")
+                logger.warning("   This indicates bot protection is active")
+                logger.warning("   Solution: Use residential proxy")
+            
+            if 'verify you are human' in html_lower or 'turnstile' in html_lower:
+                logger.warning("⚠️  CAPTCHA/TURNSTILE DETECTED!")
+                logger.warning("   VFS is showing CAPTCHA challenge")
+                logger.warning("   Solution: Residential proxy + CAPTCHA solver")
+            
+            if 'access denied' in html_lower or '403' in html_lower:
+                logger.warning("⚠️  ACCESS DENIED detected!")
+                logger.warning("   Railway IP is blocked by VFS")
+                logger.warning("   Solution: Use residential proxy")
+            
+            if 'bot' in html_lower and 'detected' in html_lower:
+                logger.warning("⚠️  BOT DETECTION message found!")
+                logger.warning("   VFS detected automated access")
+            
+            if 'maintenance' in html_lower or 'bakım' in html_lower:
+                logger.warning("⚠️  MAINTENANCE MODE detected in HTML!")
+                logger.warning("   VFS system is under maintenance")
+                return {
+                    'success': False,
+                    'message': 'VFS system maintenance in progress',
+                    'otp_method': 'maintenance'
+                }
+        except Exception as e:
+            logger.warning(f"Could not get page HTML: {e}")
+        
         # DEBUG: Page info
         try:
-            logger.info(f"📄 Page title: {await page.title()}")
-            logger.info(f"📄 Current URL: {page.url}")
+            page_title = await page.title()
+            current_url = page.url
+            
+            logger.info(f"📄 Page title: {page_title}")
+            logger.info(f"📄 Current URL: {current_url}")
+            
+            # Check if we got redirected
+            if 'login' not in current_url.lower():
+                logger.warning(f"⚠️  REDIRECTED! Expected /login but got: {current_url}")
+                
+                if 'dashboard' in current_url.lower():
+                    logger.info("✅ Already logged in! Redirected to dashboard")
+                    return {
+                        'success': True,
+                        'message': 'Already logged in',
+                        'otp_method': 'session'
+                    }
+                elif 'maintenance' in current_url.lower():
+                    logger.warning("⚠️  Redirected to maintenance page")
+                    return {
+                        'success': False,
+                        'message': 'VFS maintenance mode',
+                        'otp_method': 'maintenance'
+                    }
         except Exception as e:
             logger.warning(f"Could not get page info: {e}")
+        
+        # ===== END DEBUG SECTION =====
         
         # CHECK FOR MAINTENANCE MODE (CRITICAL!)
         logger.info("🔍 Step 2/6: Checking for maintenance mode...")
@@ -216,7 +291,9 @@ async def login_to_vfs(
             logger.error("   This could mean:")
             logger.error("   1. Page is redirecting (already logged in?)")
             logger.error("   2. Maintenance mode blocking form")
-            logger.error("   3. Page structure changed")
+            logger.error("   3. Bot detection blocking access")
+            logger.error("   4. Page structure changed")
+            logger.error("   CHECK THE HTML OUTPUT ABOVE FOR CLUES!")
             return {
                 'success': False,
                 'message': 'Email input field not found',
