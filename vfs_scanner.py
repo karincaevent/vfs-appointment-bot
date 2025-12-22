@@ -6,38 +6,79 @@ import asyncio
 import random
 from datetime import datetime
 from typing import Dict, List, Optional
-from playwright.async_api import async_playwright, Page, Browser
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from playwright_stealth import stealth_async
 from country_configs import get_country_config
 from human_behavior import HumanBehavior
-
+from vfs_login import ensure_logged_in
+from session_manager import save_session
 
 class VFSScanner:
-    def __init__(self, headless: bool = True):
+    def __init__(self, headless: bool = True, proxy: Optional[str] = None):
         self.headless = headless
+        self.proxy = proxy
         self.browser: Optional[Browser] = None
+        self.context: Optional[BrowserContext] = None
+        self.playwright = None
         
     async def init_browser(self):
-        """Initialize browser with stealth mode"""
-        playwright = await async_playwright().start()
-        self.browser = await playwright.chromium.launch(
-            headless=self.headless,
-            args=[
+        """Initialize browser with stealth mode and proxy support"""
+        self.playwright = await async_playwright().start()
+        
+        # Browser launch options
+        launch_options = {
+            'headless': self.headless,
+            'args': [
                 '--disable-blink-features=AutomationControlled',
                 '--disable-dev-shm-usage',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
             ]
+        }
+        
+        # Add proxy if provided (residential proxy recommended)
+        if self.proxy:
+            launch_options['proxy'] = {'server': self.proxy}
+            print(f"🌐 Using proxy: {self.proxy}")
+        
+        self.browser = await self.playwright.chromium.launch(**launch_options)
+        
+        # Create context with realistic settings
+        self.context = await self.browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent=HumanBehavior.get_random_user_agent(),
+            locale='tr-TR',
+            timezone_id='Europe/Istanbul',
         )
         
     async def close_browser(self):
         """Close browser"""
+        if self.context:
+            await self.context.close()
         if self.browser:
             await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
             
-    async def scan_country(self, country_code: str, country_name: str) -> Dict:
+    async def scan_country(
+        self, 
+        country_code: str, 
+        country_name: str,
+        user_id: str = None,
+        vfs_credentials: dict = None,
+        email_credentials: dict = None,
+        session_data: dict = None,
+    ) -> Dict:
         """
         Scan VFS Global for appointments in a specific country
+        
+        Args:
+            country_code: Country code (e.g., 'nld', 'deu')
+            country_name: Country name
+            user_id: User ID (for session management)
+            vfs_credentials: VFS login credentials
+            email_credentials: Email credentials for OTP
+            session_data: Existing session data
         
         Returns:
             {
@@ -46,58 +87,110 @@ class VFSScanner:
                 'has_appointment': bool,
                 'available_slots': List[str] or None,
                 'message': str,
-                'scan_duration_ms': int
+                'scan_duration_ms': int,
+                'session_saved': bool,  # New: indicates if session was saved
             }
         """
         start_time = datetime.now()
+        page = None
+        session_saved = False
         
         try:
             # Get country-specific configuration
             config = get_country_config(country_code)
-            url = config['appointment_url']
             
             print(f"🌍 Scanning {country_name} ({country_code})")
-            print(f"📍 URL: {url}")
             
-            # Create new page
-            page = await self.browser.new_page()
-            
-            # Apply stealth mode
-            await stealth_async(page)
-            
-            # 🎭 RANDOM USER-AGENT (Anti-bot detection)
-            user_agent = HumanBehavior.get_random_user_agent()
-            print(f"🎭 Using User-Agent: {user_agent[:50]}...")
-            
-            # Set viewport and user agent
-            await page.set_viewport_size({"width": 1920, "height": 1080})
-            await page.set_extra_http_headers({
-                'User-Agent': user_agent,  # 🔥 ROTATED USER-AGENT
-                'Accept-Language': 'en-US,en;q=0.9,tr;q=0.8',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            })
-            
-            # Navigate with timeout
-            try:
-                print(f"🔄 Navigating to page...")
-                await page.goto(url, wait_until='networkidle', timeout=config['timeout'])
-                print(f"✅ Page loaded")
-            except Exception as e:
-                print(f"❌ Navigation failed: {str(e)}")
-                await page.close()
-                return {
-                    'success': False,
-                    'country': country_name,
-                    'has_appointment': False,
-                    'available_slots': None,
-                    'message': f'Navigation failed: {str(e)[:100]}',
-                    'scan_duration_ms': int((datetime.now() - start_time).total_seconds() * 1000)
-                }
-            
-            # 👤 HUMAN BEHAVIOR SIMULATION
-            # This is critical for avoiding bot detection!
-            await HumanBehavior.simulate_full_page_interaction(page)
-            
+            # If credentials provided, use login flow
+            if vfs_credentials and user_id:
+                print(f"🔐 Using authenticated session")
+                
+                # Ensure logged in (restore session or fresh login)
+                page, is_new_login = await ensure_logged_in(
+                    context=self.context,
+                    user_id=user_id,
+                    vfs_credentials={
+                        'email': vfs_credentials.get('vfs_email'),
+                        'password': vfs_credentials.get('vfs_password'),  # Should be decrypted
+                        'country_code': country_code,
+                    },
+                    email_credentials=email_credentials,
+                    session_data=session_data,
+                )
+                
+                # If new login, save session
+                if is_new_login:
+                    new_session = await save_session(self.context, user_id, country_code, expires_hours=24)
+                    session_saved = True
+                    print(f"💾 New session saved for {country_code.upper()}")
+                
+                # Navigate to appointment booking page
+                # From dashboard, click "Yeni Rezervasyon Başlat"
+                print(f"📍 Navigating to appointment booking...")
+                
+                new_booking_selectors = [
+                    'text="Yeni Rezervasyon Başlat"',
+                    'text="New Reservation"',
+                    'a[href*="new-booking"]',
+                    'button:has-text("Rezervasyon")',
+                ]
+                
+                booking_clicked = False
+                for selector in new_booking_selectors:
+                    try:
+                        if await page.locator(selector).count() > 0:
+                            await page.click(selector)
+                            booking_clicked = True
+                            print(f"✅ Clicked: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if not booking_clicked:
+                    print(f"⚠️  Could not find 'New Booking' button, trying direct URL")
+                    # Try direct URL to appointment page (5th page)
+                    appt_url = f"{config['base_url']}/application-detail"
+                    await page.goto(appt_url, wait_until='networkidle', timeout=config['timeout'])
+                
+                # Wait for page load
+                await page.wait_for_load_state('networkidle')
+                
+                # Human behavior simulation
+                await HumanBehavior.simulate_full_page_interaction(page)
+                
+            else:
+                # No credentials - try public page (may not work)
+                print(f"⚠️  No credentials provided - attempting public access")
+                url = config['appointment_url']
+                print(f"📍 URL: {url}")
+                
+                # Create new page from context
+                page = await self.context.new_page()
+                
+                # Apply stealth mode
+                await stealth_async(page)
+                
+                # Navigate
+                try:
+                    print(f"🔄 Navigating to page...")
+                    await page.goto(url, wait_until='networkidle', timeout=config['timeout'])
+                    print(f"✅ Page loaded")
+                except Exception as e:
+                    print(f"❌ Navigation failed: {str(e)}")
+                    await page.close()
+                    return {
+                        'success': False,
+                        'country': country_name,
+                        'has_appointment': False,
+                        'available_slots': None,
+                        'message': f'Navigation failed: {str(e)[:100]}',
+                        'scan_duration_ms': int((datetime.now() - start_time).total_seconds() * 1000),
+                        'session_saved': False,
+                    }
+                
+                # Human behavior simulation
+                await HumanBehavior.simulate_full_page_interaction(page)
+                
             # Wait for main content to load
             try:
                 print(f"⏳ Waiting for appointment content...")
@@ -163,7 +256,8 @@ class VFSScanner:
             # Take screenshot for debugging (optional)
             # await page.screenshot(path=f'/tmp/{country_code}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png')
             
-            await page.close()
+            if page:
+                await page.close()
             
             scan_duration = int((datetime.now() - start_time).total_seconds() * 1000)
             print(f"⏱️  Scan completed in {scan_duration}ms")
@@ -174,12 +268,19 @@ class VFSScanner:
                 'has_appointment': has_appointment,
                 'available_slots': available_slots if has_appointment else None,
                 'message': message,
-                'scan_duration_ms': scan_duration
+                'scan_duration_ms': scan_duration,
+                'session_saved': session_saved,
             }
             
         except Exception as e:
             scan_duration = int((datetime.now() - start_time).total_seconds() * 1000)
             print(f"❌ Error scanning {country_name}: {str(e)}")
+            
+            if page:
+                try:
+                    await page.close()
+                except:
+                    pass
             
             return {
                 'success': False,
@@ -187,21 +288,6 @@ class VFSScanner:
                 'has_appointment': False,
                 'available_slots': None,
                 'message': f'Error: {str(e)[:100]}',
-                'scan_duration_ms': scan_duration
+                'scan_duration_ms': scan_duration,
+                'session_saved': False,
             }
-
-
-# Example usage
-async def test_scanner():
-    """Test the scanner"""
-    scanner = VFSScanner(headless=True)
-    await scanner.init_browser()
-    
-    result = await scanner.scan_country('germany', 'Germany')
-    print(result)
-    
-    await scanner.close_browser()
-
-
-if __name__ == "__main__":
-    asyncio.run(test_scanner())
