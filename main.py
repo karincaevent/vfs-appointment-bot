@@ -28,7 +28,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def get_enabled_countries():
     """Fetch enabled countries from Supabase"""
     try:
-        response = supabase.table('countries_d257add4').select('*').eq('enabled', True).order('priority').execute()
+        response = supabase.table('countries_d257add4').select('*').eq('status', True).order('priority').execute()
         if response.data:
             return response.data
         return []
@@ -90,6 +90,8 @@ async def scan_country(country_code: str, country_name: str):
         
         # Update last scan time in countries table
         supabase.table('countries_d257add4').update({
+    'last_checked_at': datetime.utcnow().isoformat()
+}).eq('code', country_code).execute()
             'last_scan': datetime.utcnow().isoformat()
         }).eq('code', country_code).execute()
         
