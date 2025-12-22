@@ -25,10 +25,13 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Demo user ID (same as backend)
+DEMO_USER_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+
 async def get_enabled_countries():
     """Fetch enabled countries from Supabase"""
     try:
-        response = supabase.table('countries_d257add4').select('*').eq('active', True).order('priority').execute()
+        response = supabase.table('countries_d257add4').select('*').eq('user_id', DEMO_USER_ID).eq('active', True).order('priority').execute()
         if response.data:
             return response.data
         return []
@@ -40,6 +43,7 @@ async def log_scan(country_code: str, status: str, message: str):
     """Log scan to Supabase"""
     try:
         log_entry = {
+            'user_id': DEMO_USER_ID,
             'country_code': country_code,
             'status': status,
             'message': message,
@@ -49,7 +53,7 @@ async def log_scan(country_code: str, status: str, message: str):
     except Exception as e:
         logger.error(f"Error logging scan: {e}")
 
-async def scan_country(country_code: str, country_name: str):
+async def scan_country(country_code: str, country_name: str, country_id: str):
     """Scan a single country for VFS appointments"""
     try:
         logger.info(f"[{country_code}] Starting scan for {country_name}...")
@@ -60,7 +64,7 @@ async def scan_country(country_code: str, country_name: str):
             url = f"https://visa.vfsglobal.com/{country_code.lower()}/en/check-appointment"
             
             try:
-                response = await client.get(url)
+                response = await client.get(url, follow_redirects=True)
                 
                 if response.status_code == 200:
                     # Basic check - look for "available" keyword
@@ -74,6 +78,10 @@ async def scan_country(country_code: str, country_name: str):
                         logger.info(f"[{country_code}] No appointments available")
                         await log_scan(country_code, 'no_appointment', 'No appointments found')
                         status = 'no_appointment'
+                elif response.status_code == 403:
+                    logger.warning(f"[{country_code}] Access blocked (403) - VFS bot protection active")
+                    await log_scan(country_code, 'error', 'HTTP 403 - Bot protection (需要 Selenium/Playwright)')
+                    status = 'error'
                 else:
                     logger.warning(f"[{country_code}] HTTP {response.status_code}")
                     await log_scan(country_code, 'error', f'HTTP {response.status_code}')
@@ -91,7 +99,7 @@ async def scan_country(country_code: str, country_name: str):
         # Update last scan time in countries table
         supabase.table('countries_d257add4').update({
             'last_checked_at': datetime.utcnow().isoformat()
-        }).eq('code', country_code).execute()
+        }).eq('id', country_id).execute()
         
     except Exception as e:
         logger.error(f"[{country_code}] Error scanning: {e}")
@@ -110,10 +118,11 @@ async def main_loop():
             
             # Scan each country
             for country in countries:
+                country_id = country.get('id')
                 country_code = country.get('code')
                 country_name = country.get('name')
-                if country_code:
-                    await scan_country(country_code, country_name)
+                if country_code and country_id:
+                    await scan_country(country_code, country_name, country_id)
                     await asyncio.sleep(5)  # 5 seconds between countries
             
             # Wait 30 seconds before next full scan
