@@ -28,7 +28,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def get_enabled_countries():
     """Fetch enabled countries from Supabase"""
     try:
-        response = supabase.table('countries_d257add4').select('*').eq('status', True).order('priority').execute()
+        response = supabase.table('countries_d257add4').select('*').eq('active', True).order('priority').execute()
         if response.data:
             return response.data
         return []
@@ -40,10 +40,10 @@ async def log_scan(country_code: str, status: str, message: str):
     """Log scan to Supabase"""
     try:
         log_entry = {
-            'country': country_code,
+            'country_code': country_code,
             'status': status,
             'message': message,
-            'timestamp': datetime.utcnow().isoformat()
+            'created_at': datetime.utcnow().isoformat()
         }
         supabase.table('logs_d257add4').insert(log_entry).execute()
     except Exception as e:
@@ -68,12 +68,12 @@ async def scan_country(country_code: str, country_name: str):
                     
                     if "available" in content or "book" in content:
                         logger.info(f"[{country_code}] ✅ POTENTIAL APPOINTMENTS FOUND!")
-                        await log_scan(country_code, 'available', 'Potential appointments detected')
-                        status = 'available'
+                        await log_scan(country_code, 'found', 'Potential appointments detected')
+                        status = 'found'
                     else:
                         logger.info(f"[{country_code}] No appointments available")
-                        await log_scan(country_code, 'unavailable', 'No appointments found')
-                        status = 'unavailable'
+                        await log_scan(country_code, 'no_appointment', 'No appointments found')
+                        status = 'no_appointment'
                 else:
                     logger.warning(f"[{country_code}] HTTP {response.status_code}")
                     await log_scan(country_code, 'error', f'HTTP {response.status_code}')
