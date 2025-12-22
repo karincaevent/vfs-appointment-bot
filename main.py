@@ -5,7 +5,7 @@ Receives scan requests from Edge Functions and returns VFS scan results
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 import os
 import asyncio
 from vfs_scanner import VFSScanner
@@ -52,6 +52,9 @@ async def shutdown_event():
 class ScanRequest(BaseModel):
     country_code: str
     country_name: str
+    user_id: Optional[str] = None
+    vfs_credentials: Optional[dict] = None
+    email_credentials: Optional[dict] = None
 
 
 class ScanResponse(BaseModel):
@@ -69,7 +72,7 @@ async def root():
     return {
         "service": "VFS Scanner Worker",
         "status": "running",
-        "version": "1.0.0"
+        "version": "1.2.0"
     }
 
 
@@ -93,7 +96,17 @@ async def scan_country(
     Body:
         {
             "country_code": "deu",
-            "country_name": "Germany"
+            "country_name": "Germany",
+            "user_id": "user123",
+            "vfs_credentials": {
+                "vfs_email": "user@example.com",
+                "vfs_password_encrypted": "base64string",
+                "application_center": "Istanbul"
+            },
+            "email_credentials": {
+                "email": "user@gmail.com",
+                "password": "app_password"
+            }
         }
     
     Returns:
@@ -119,11 +132,47 @@ async def scan_country(
         raise HTTPException(status_code=503, detail="Scanner not initialized")
     
     print(f"📋 Scanning: {request.country_name} ({request.country_code})")
-    result = await scanner.scan_country(request.country_code, request.country_name)
+    print(f"📦 Request details:", {
+        "country_code": request.country_code,
+        "country_name": request.country_name,
+        "user_id": request.user_id,
+        "has_vfs_credentials": request.vfs_credentials is not None,
+        "has_email_credentials": request.email_credentials is not None,
+    })
+    
+    # Log VFS credentials if provided
+    if request.vfs_credentials:
+        print(f"🔐 VFS Credentials:")
+        print(f"   Email: {request.vfs_credentials.get('vfs_email', 'N/A')}")
+        print(f"   Application Center: {request.vfs_credentials.get('application_center', 'N/A')}")
+        print(f"   Has encrypted password: {'vfs_password_encrypted' in request.vfs_credentials}")
+        print(f"   Credentials keys: {list(request.vfs_credentials.keys())}")
+    else:
+        print(f"⚠️  No VFS credentials provided")
+    
+    # Decrypt password if encrypted
+    if request.vfs_credentials and 'vfs_password_encrypted' in request.vfs_credentials:
+        try:
+            import base64
+            encrypted = request.vfs_credentials['vfs_password_encrypted']
+            decrypted = base64.b64decode(encrypted).decode('utf-8')
+            request.vfs_credentials['vfs_password'] = decrypted
+            print(f"🔓 Password decrypted successfully")
+        except Exception as e:
+            print(f"❌ Password decryption failed: {e}")
+    
+    # Pass credentials to scanner
+    result = await scanner.scan_country(
+        country_code=request.country_code,
+        country_name=request.country_name,
+        user_id=request.user_id,
+        vfs_credentials=request.vfs_credentials,
+        email_credentials=request.email_credentials
+    )
+    
     print(f"✅ Scan complete: {result['message']}")
     
     return result
-
 
 @app.post("/scan-batch")
 async def scan_batch(
