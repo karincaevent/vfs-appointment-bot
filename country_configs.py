@@ -6,9 +6,9 @@ Each country may have different URL patterns and selectors
 COUNTRY_CONFIGS = {
     'deu': {
         'name': 'Germany',
-        'base_url': 'https://visa.vfsglobal.com/tur/en/deu',
+        'base_url': 'https://visa.vfsglobal.com/tur/tr/deu',
         'appointment_url':
-        'https://visa.vfsglobal.com/tur/en/deu/book-an-appointment',
+        'https://visa.vfsglobal.com/tur/tr/deu/application-detail',  # 5th page after login
         'selectors': {
             # Main appointment availability indicator
             'no_appointment': [
@@ -43,9 +43,9 @@ COUNTRY_CONFIGS = {
     },
     'bel': {
         'name': 'Belgium',
-        'base_url': 'https://visa.vfsglobal.com/tur/en/bel',
+        'base_url': 'https://visa.vfsglobal.com/tur/tr/bel',
         'appointment_url':
-        'https://visa.vfsglobal.com/tur/en/bel/book-an-appointment',
+        'https://visa.vfsglobal.com/tur/tr/bel/application-detail',  # 5th page after login
         'selectors': {
             'no_appointment': [
                 'text=No appointment slots are currently available',
@@ -68,9 +68,9 @@ COUNTRY_CONFIGS = {
     },
     'esp': {
         'name': 'Spain',
-        'base_url': 'https://visa.vfsglobal.com/tur/en/esp',
+        'base_url': 'https://visa.vfsglobal.com/tur/tr/esp',
         'appointment_url':
-        'https://visa.vfsglobal.com/tur/en/esp/book-an-appointment',
+        'https://visa.vfsglobal.com/tur/tr/esp/application-detail',  # 5th page after login
         'selectors': {
             'no_appointment': [
                 'text=No appointment slots are currently available',
@@ -93,9 +93,9 @@ COUNTRY_CONFIGS = {
     },
     'fra': {
         'name': 'France',
-        'base_url': 'https://visa.vfsglobal.com/tur/en/fra',
+        'base_url': 'https://visa.vfsglobal.com/tur/tr/fra',
         'appointment_url':
-        'https://visa.vfsglobal.com/tur/en/fra/book-an-appointment',
+        'https://visa.vfsglobal.com/tur/tr/fra/application-detail',  # 5th page after login
         'selectors': {
             'no_appointment': [
                 'text=No appointment slots are currently available',
@@ -116,9 +116,9 @@ COUNTRY_CONFIGS = {
     },
     'ita': {
         'name': 'Italy',
-        'base_url': 'https://visa.vfsglobal.com/tur/en/ita',
+        'base_url': 'https://visa.vfsglobal.com/tur/tr/ita',
         'appointment_url':
-        'https://visa.vfsglobal.com/tur/en/ita/book-an-appointment',
+        'https://visa.vfsglobal.com/tur/tr/ita/application-detail',  # 5th page after login
         'selectors': {
             'no_appointment': [
                 'text=No appointment slots are currently available',
@@ -139,9 +139,9 @@ COUNTRY_CONFIGS = {
     },
     'nld': {
         'name': 'Netherlands',
-        'base_url': 'https://visa.vfsglobal.com/tur/en/nld',
+        'base_url': 'https://visa.vfsglobal.com/tur/tr/nld',
         'appointment_url':
-        'https://visa.vfsglobal.com/tur/en/nld/book-an-appointment',
+        'https://visa.vfsglobal.com/tur/tr/nld/application-detail',  # 5th page after login
         'selectors': {
             'no_appointment': [
                 'text=No appointment slots are currently available',
@@ -177,9 +177,9 @@ def get_country_config(country_code: str) -> dict:
         country_code.lower(), {
             'name': country_code.upper(),
             'base_url':
-            f'https://visa.vfsglobal.com/tur/en/{country_code.lower()}',
+            f'https://visa.vfsglobal.com/tur/tr/{country_code.lower()}',
             'appointment_url':
-            f'https://visa.vfsglobal.com/tur/en/{country_code.lower()}/book-an-appointment',
+            f'https://visa.vfsglobal.com/tur/tr/{country_code.lower()}/application-detail',  # 5th page after login
             'selectors': {
                 'no_appointment': [
                     'text=No appointment slots are currently available',
