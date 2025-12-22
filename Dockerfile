@@ -38,8 +38,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN python -c "import imapclient; print('✅ imapclient installed:', imapclient.__version__)" || \
     (echo "❌ imapclient NOT found! Installing manually..." && pip install --no-cache-dir imapclient==2.3.1)
 
-# Playwright chromium'u kur (--with-deps ile)
-RUN playwright install --with-deps chromium
+# Playwright chromium'u kur (--with-deps OLMADAN, zaten manuel kuruldu)
+RUN playwright install chromium
 
 # Uygulama kodunu kopyala
 COPY . .
