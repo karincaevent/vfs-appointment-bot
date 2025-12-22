@@ -104,29 +104,98 @@ async def login_to_vfs(
         
         logger.info("📍 Step 1/6: Homepage loaded")
         
+        # DEBUG: Take screenshot and analyze page
+        try:
+            await page.screenshot(path='/tmp/vfs_homepage.png')
+            logger.info("📸 Screenshot saved: /tmp/vfs_homepage.png")
+        except Exception as e:
+            logger.warning(f"Could not save screenshot: {e}")
+        
+        # DEBUG: Print page details
+        try:
+            logger.info(f"📄 Page title: {await page.title()}")
+            logger.info(f"📄 Page URL: {page.url}")
+            
+            # List all clickable elements
+            all_buttons = await page.locator('button, a').all()
+            logger.info(f"🔍 Found {len(all_buttons)} buttons/links on page")
+            
+            for i, btn in enumerate(all_buttons[:25]):  # First 25 buttons
+                try:
+                    text = await btn.inner_text()
+                    if text and text.strip():
+                        logger.info(f"   Button {i+1}: {text.strip()[:60]}")
+                except:
+                    pass
+        except Exception as e:
+            logger.warning(f"Could not analyze page: {e}")
+        
+        # Handle cookie consent popup first
+        logger.info("🍪 Checking for cookie consent popup...")
+        cookie_selectors = [
+            'button:has-text("Kabul Et")',
+            'button:has-text("Accept")',
+            'button:has-text("Hepsini Kabul Et")',
+            'button:has-text("Accept All")',
+            'button:has-text("OK")',
+            '#onetrust-accept-btn-handler',
+            '.accept-cookies',
+        ]
+        
+        for selector in cookie_selectors:
+            try:
+                if await page.locator(selector).count() > 0:
+                    logger.info(f"✅ Found cookie button: {selector}")
+                    await click_with_human_behavior(page, selector)
+                    await human_like_delay(1000, 2000)
+                    logger.info("✅ Cookie consent accepted")
+                    break
+            except Exception as e:
+                logger.debug(f"Cookie selector failed: {selector} - {e}")
+                continue
+        
         # 2. Click "Şimdi randevu al" button
-        # Try multiple selectors
+        # Try multiple selectors (both Turkish and English)
         book_button_selectors = [
             'text="Şimdi randevu al"',
             'text="Book an appointment"',
+            'text="Randevu Al"',
+            'text="Book Appointment"',
+            'text="Randevu"',
             'a[href*="login"]',
+            'a[href*="appointment"]',
             'button:has-text("randevu")',
+            'button:has-text("appointment")',
             '.appointment-button',
+            'a:has-text("Şimdi")',
+            'a:has-text("Book")',
         ]
         
         clicked = False
         for selector in book_button_selectors:
             try:
                 if await page.locator(selector).count() > 0:
-                    logger.info(f"🖱️  Step 2/6: Clicking '{selector}'")
+                    logger.info(f"🖱️  Step 2/6: Found and clicking '{selector}'")
                     await click_with_human_behavior(page, selector)
                     clicked = True
                     break
-            except:
+            except Exception as e:
+                logger.debug(f"Selector failed: {selector} - {e}")
                 continue
         
         if not clicked:
             logger.error("❌ Could not find 'Book appointment' button")
+            logger.error("   Tried selectors:")
+            for sel in book_button_selectors:
+                logger.error(f"   - {sel}")
+            
+            # Take another screenshot for debugging
+            try:
+                await page.screenshot(path='/tmp/vfs_no_button.png')
+                logger.info("📸 Debug screenshot saved: /tmp/vfs_no_button.png")
+            except:
+                pass
+            
             return {
                 'success': False,
                 'message': 'Book appointment button not found',
@@ -138,22 +207,37 @@ async def login_to_vfs(
         # 3. Fill login form
         logger.info("📧 Step 3/6: Entering email and password")
         
+        # Take screenshot of login page
+        try:
+            await page.screenshot(path='/tmp/vfs_login_page.png')
+            logger.info("📸 Login page screenshot: /tmp/vfs_login_page.png")
+        except:
+            pass
+        
         # Email field
         email_selectors = [
             'input[type="email"]',
             'input[name="email"]',
             'input[id="email"]',
+            'input[placeholder*="email" i]',
+            'input[placeholder*="E-posta" i]',
             '#mat-input-0',  # Common Angular Material ID
         ]
         
+        email_entered = False
         for selector in email_selectors:
             try:
                 if await page.locator(selector).count() > 0:
                     await human_like_typing(page, selector, email)
                     logger.info(f"✅ Email entered via {selector}")
+                    email_entered = True
                     break
-            except:
+            except Exception as e:
+                logger.debug(f"Email selector failed: {selector} - {e}")
                 continue
+        
+        if not email_entered:
+            logger.error("❌ Could not find email input field")
         
         await human_like_delay(500, 1000)
         
@@ -162,17 +246,25 @@ async def login_to_vfs(
             'input[type="password"]',
             'input[name="password"]',
             'input[id="password"]',
+            'input[placeholder*="password" i]',
+            'input[placeholder*="şifre" i]',
             '#mat-input-1',  # Common Angular Material ID
         ]
         
+        password_entered = False
         for selector in password_selectors:
             try:
                 if await page.locator(selector).count() > 0:
                     await human_like_typing(page, selector, password)
                     logger.info(f"✅ Password entered via {selector}")
+                    password_entered = True
                     break
-            except:
+            except Exception as e:
+                logger.debug(f"Password selector failed: {selector} - {e}")
                 continue
+        
+        if not password_entered:
+            logger.error("❌ Could not find password input field")
         
         await human_like_delay(1000, 2000)
         
@@ -181,17 +273,26 @@ async def login_to_vfs(
             'button[type="submit"]',
             'button:has-text("Sign In")',
             'button:has-text("Giriş")',
+            'button:has-text("Login")',
+            'button:has-text("Oturum Aç")',
             '.login-button',
+            '.submit-button',
         ]
         
+        submitted = False
         for selector in submit_selectors:
             try:
                 if await page.locator(selector).count() > 0:
-                    logger.info("🚀 Step 4/6: Submitting login form")
+                    logger.info(f"🚀 Step 4/6: Submitting login form via {selector}")
                     await click_with_human_behavior(page, selector)
+                    submitted = True
                     break
-            except:
+            except Exception as e:
+                logger.debug(f"Submit selector failed: {selector} - {e}")
                 continue
+        
+        if not submitted:
+            logger.error("❌ Could not find submit button")
         
         # Wait for OTP page
         await page.wait_for_load_state('networkidle', timeout=10000)
@@ -245,8 +346,9 @@ async def login_to_vfs(
             'input[type="text"][maxlength="6"]',
             'input[name="otp"]',
             'input[id="otp"]',
-            'input[placeholder*="OTP"]',
-            'input[placeholder*="code"]',
+            'input[placeholder*="OTP" i]',
+            'input[placeholder*="code" i]',
+            'input[placeholder*="kod" i]',
         ]
         
         for selector in otp_selectors:
@@ -266,12 +368,13 @@ async def login_to_vfs(
             'button:has-text("Verify")',
             'button:has-text("Doğrula")',
             'button:has-text("Submit")',
+            'button:has-text("Gönder")',
         ]
         
         for selector in verify_selectors:
             try:
                 if await page.locator(selector).count() > 0:
-                    logger.info("✅ Submitting OTP")
+                    logger.info(f"✅ Submitting OTP via {selector}")
                     await click_with_human_behavior(page, selector)
                     break
             except:
@@ -294,6 +397,7 @@ async def login_to_vfs(
         for indicator in success_indicators:
             if await page.locator(indicator).count() > 0:
                 login_success = True
+                logger.info(f"✅ Found success indicator: {indicator}")
                 break
         
         if login_success:
@@ -305,6 +409,14 @@ async def login_to_vfs(
             }
         else:
             logger.error("❌ Login failed - dashboard not found")
+            
+            # Debug: Take screenshot
+            try:
+                await page.screenshot(path='/tmp/vfs_login_failed.png')
+                logger.info("📸 Failed login screenshot: /tmp/vfs_login_failed.png")
+            except:
+                pass
+            
             return {
                 'success': False,
                 'message': 'Login failed - could not reach dashboard',
@@ -313,6 +425,15 @@ async def login_to_vfs(
         
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
+        logger.error(f"   Error type: {type(e).__name__}")
+        
+        # Take screenshot on error
+        try:
+            await page.screenshot(path='/tmp/vfs_error.png')
+            logger.info("📸 Error screenshot: /tmp/vfs_error.png")
+        except:
+            pass
+        
         return {
             'success': False,
             'message': f'Login error: {str(e)}',
@@ -354,15 +475,18 @@ async def ensure_logged_in(
             country_code = vfs_credentials.get('country_code', 'nld')
             dashboard_url = f"https://visa.vfsglobal.com/tur/tr/{country_code}/dashboard"
             
-            await page.goto(dashboard_url, wait_until='networkidle', timeout=15000)
-            
-            # Check if still logged in
-            if await page.locator('text="Dashboard"').count() > 0 or \
-               await page.locator('text="Yeni Rezervasyon"').count() > 0:
-                logger.info("✅ Session restored successfully")
-                return page, False
-            else:
-                logger.warning("⚠️  Session expired, performing fresh login")
+            try:
+                await page.goto(dashboard_url, wait_until='networkidle', timeout=15000)
+                
+                # Check if still logged in
+                if await page.locator('text="Dashboard"').count() > 0 or \
+                   await page.locator('text="Yeni Rezervasyon"').count() > 0:
+                    logger.info("✅ Session restored successfully")
+                    return page, False
+                else:
+                    logger.warning("⚠️  Session expired, performing fresh login")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not restore session: {e}")
     
     # Fresh login required
     logger.info("🔐 Performing fresh login...")
