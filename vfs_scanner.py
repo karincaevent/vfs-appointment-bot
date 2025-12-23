@@ -174,6 +174,12 @@ class VFSScanner:
                 await page.reload(wait_until='networkidle')
                 await asyncio.sleep(2)
                 
+                # 🔥 NAVIGATE TO DASHBOARD (where the booking button lives!)
+                dashboard_url = f"{config['base_url']}/dashboard"
+                print(f"📍 Navigating to dashboard: {dashboard_url}")
+                await page.goto(dashboard_url, wait_until='networkidle', timeout=config['timeout'])
+                await asyncio.sleep(2)
+                
                 # 🔥 VERIFY SESSION AFTER RELOAD
                 print(f"🔍 Verifying session after reload...")
                 try:
@@ -183,18 +189,50 @@ class VFSScanner:
                             has_csk: !!sessionStorage.getItem('csk_str'),
                             has_email: !!sessionStorage.getItem('logged_email'),
                             current_url: window.location.href,
-                            page_title: document.title
+                            page_title: document.title,
+                            body_text: document.body.innerText.substring(0, 500)
                         };
                     }''')
                     print(f"   JWT in sessionStorage: {session_check['has_jwt']}")
                     print(f"   csk_str in sessionStorage: {session_check['has_csk']}")
                     print(f"   Current URL: {session_check['current_url']}")
                     print(f"   Page Title: {session_check['page_title']}")
+                    print(f"   Page Content Preview: {session_check['body_text'][:200]}")
+                    
+                    # 🔥 CHECK IF LOGGED IN
+                    is_logged_in = await page.evaluate('''() => {
+                        const bodyText = document.body.innerText.toLowerCase();
+                        // Check for login indicators
+                        const hasLoginButton = bodyText.includes('login') || bodyText.includes('sign in') || bodyText.includes('giriş');
+                        const hasDashboard = bodyText.includes('dashboard') || bodyText.includes('panel') || bodyText.includes('rezervasyon');
+                        const hasLogout = bodyText.includes('logout') || bodyText.includes('çıkış');
+                        
+                        return {
+                            has_login_button: hasLoginButton,
+                            has_dashboard: hasDashboard,
+                            has_logout: hasLogout,
+                            is_logged_in: (hasDashboard || hasLogout) && !hasLoginButton
+                        };
+                    }''')
+                    
+                    print(f"   Login Status Check:")
+                    print(f"      Has Login Button: {is_logged_in['has_login_button']}")
+                    print(f"      Has Dashboard: {is_logged_in['has_dashboard']}")
+                    print(f"      Has Logout: {is_logged_in['has_logout']}")
+                    print(f"      Is Logged In: {is_logged_in['is_logged_in']}")
+                    
+                    # Take screenshot for debugging
+                    screenshot_path = f"/tmp/vfs_{country_code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                    await page.screenshot(path=screenshot_path)
+                    print(f"   📸 Screenshot saved: {screenshot_path}")
                     
                     if not session_check['has_jwt']:
                         print(f"❌ SESSION LOST AFTER RELOAD! Falling back to login...")
-                        # Session lost, skip to fallback login
                         raise Exception("Session lost after reload")
+                    
+                    if not is_logged_in['is_logged_in']:
+                        print(f"⚠️  WARNING: Session exists but user appears NOT logged in!")
+                        print(f"   This might be a Cloudflare challenge or expired session.")
                 except Exception as e:
                     print(f"⚠️  Session verification failed: {e}")
                 
