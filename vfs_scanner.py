@@ -68,6 +68,7 @@ class VFSScanner:
         vfs_credentials: dict = None,
         email_credentials: dict = None,
         session_data: dict = None,
+        vfs_session: dict = None,  # 🔥 FIX: ADDED THIS PARAMETER!
     ) -> Dict:
         """
         Scan VFS Global for appointments in a specific country
@@ -79,6 +80,7 @@ class VFSScanner:
             vfs_credentials: VFS login credentials
             email_credentials: Email credentials for OTP
             session_data: Existing session data
+            vfs_session: Manual session data (JWT, csk_str) for Cloudflare bypass
         
         Returns:
             {
@@ -88,7 +90,7 @@ class VFSScanner:
                 'available_slots': List[str] or None,
                 'message': str,
                 'scan_duration_ms': int,
-                'session_saved': bool,  # New: indicates if session was saved
+                'session_saved': bool,
             }
         """
         start_time = datetime.now()
@@ -101,8 +103,74 @@ class VFSScanner:
             
             print(f"🌍 Scanning {country_name} ({country_code})")
             
+            # 🔥 NEW: Check if manual session provided (Cloudflare bypass)
+            if vfs_session and vfs_session.get('JWT') and vfs_session.get('csk_str'):
+                print(f"🚀 Using MANUAL SESSION (Cloudflare bypass)")
+                print(f"   JWT: {vfs_session.get('JWT')[:50]}...")
+                print(f"   csk_str: {vfs_session.get('csk_str')[:50]}...")
+                
+                # Create new page
+                page = await self.context.new_page()
+                await stealth_async(page)
+                
+                # Navigate to VFS
+                url = config['base_url']
+                print(f"📍 Navigating to: {url}")
+                
+                try:
+                    await page.goto(url, wait_until='networkidle', timeout=config['timeout'])
+                    print(f"✅ Page loaded")
+                except Exception as e:
+                    print(f"❌ Navigation failed: {str(e)}")
+                    await page.close()
+                    return {
+                        'success': False,
+                        'country': country_name,
+                        'has_appointment': False,
+                        'available_slots': None,
+                        'message': f'Navigation failed: {str(e)[:100]}',
+                        'scan_duration_ms': int((datetime.now() - start_time).total_seconds() * 1000),
+                        'session_saved': False,
+                    }
+                
+                # 🔥 INJECT SESSION INTO sessionStorage
+                print(f"💉 Injecting session data...")
+                try:
+                    await page.evaluate(f'''() => {{
+                        sessionStorage.setItem('JWT', '{vfs_session.get("JWT")}');
+                        sessionStorage.setItem('csk_str', '{vfs_session.get("csk_str")}');
+                    }}''')
+                    print(f"✅ Session injected")
+                except Exception as e:
+                    print(f"⚠️  Session injection warning: {e}")
+                
+                # Reload to apply session
+                print(f"🔄 Reloading page...")
+                await page.reload(wait_until='networkidle')
+                await asyncio.sleep(2)
+                
+                # Navigate to booking page
+                print(f"📍 Navigating to appointment booking...")
+                booking_clicked = False
+                for selector in ['text="Yeni Rezervasyon Başlat"', 'text="New Reservation"', 'a[href*="new-booking"]']:
+                    try:
+                        if await page.locator(selector).count() > 0:
+                            await page.click(selector)
+                            booking_clicked = True
+                            print(f"✅ Clicked: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if not booking_clicked:
+                    print(f"⚠️  Trying direct appointment URL...")
+                    await page.goto(f"{config['base_url']}/appointment", wait_until='networkidle', timeout=config['timeout'])
+                
+                await page.wait_for_load_state('networkidle')
+                await HumanBehavior.simulate_full_page_interaction(page)
+            
             # If credentials provided, use login flow
-            if vfs_credentials and user_id:
+            elif vfs_credentials and user_id:
                 print(f"🔐 Using authenticated session")
                 
                 # Ensure logged in (restore session or fresh login)
@@ -111,7 +179,7 @@ class VFSScanner:
                     user_id=user_id,
                     vfs_credentials={
                         'email': vfs_credentials.get('vfs_email'),
-                        'password': vfs_credentials.get('vfs_password'),  # Should be decrypted
+                        'password': vfs_credentials.get('vfs_password'),
                         'country_code': country_code,
                     },
                     email_credentials=email_credentials,
@@ -125,7 +193,6 @@ class VFSScanner:
                     print(f"💾 New session saved for {country_code.upper()}")
                 
                 # Navigate to appointment booking page
-                # From dashboard, click "Yeni Rezervasyon Başlat"
                 print(f"📍 Navigating to appointment booking...")
                 
                 new_booking_selectors = [
@@ -148,29 +215,21 @@ class VFSScanner:
                 
                 if not booking_clicked:
                     print(f"⚠️  Could not find 'New Booking' button, trying direct URL")
-                    # Try direct URL to appointment page (5th page)
                     appt_url = f"{config['base_url']}/application-detail"
                     await page.goto(appt_url, wait_until='networkidle', timeout=config['timeout'])
                 
-                # Wait for page load
                 await page.wait_for_load_state('networkidle')
-                
-                # Human behavior simulation
                 await HumanBehavior.simulate_full_page_interaction(page)
-                
+            
             else:
                 # No credentials - try public page (may not work)
                 print(f"⚠️  No credentials provided - attempting public access")
                 url = config['appointment_url']
                 print(f"📍 URL: {url}")
                 
-                # Create new page from context
                 page = await self.context.new_page()
-                
-                # Apply stealth mode
                 await stealth_async(page)
                 
-                # Navigate
                 try:
                     print(f"🔄 Navigating to page...")
                     await page.goto(url, wait_until='networkidle', timeout=config['timeout'])
@@ -188,9 +247,8 @@ class VFSScanner:
                         'session_saved': False,
                     }
                 
-                # Human behavior simulation
                 await HumanBehavior.simulate_full_page_interaction(page)
-                
+            
             # Wait for main content to load
             try:
                 print(f"⏳ Waiting for appointment content...")
@@ -204,7 +262,7 @@ class VFSScanner:
             available_slots = []
             message = "Unknown status"
             
-            # 1. First check for "no appointment" messages
+            # 1. Check for "no appointment" messages
             print(f"🔍 Checking for 'no appointment' messages...")
             no_appt_found = False
             
@@ -233,7 +291,7 @@ class VFSScanner:
                             print(f"   ✓ Found {len(slots)} slots with: {selector}")
                             
                             # Extract dates from slots
-                            for i, slot in enumerate(slots[:10]):  # Max 10 slots
+                            for i, slot in enumerate(slots[:10]):
                                 try:
                                     date_text = await slot.inner_text()
                                     if date_text and date_text.strip():
@@ -252,9 +310,6 @@ class VFSScanner:
                 else:
                     message = "No slots detected on page"
                     print(f"⚠️  {message}")
-            
-            # Take screenshot for debugging (optional)
-            # await page.screenshot(path=f'/tmp/{country_code}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png')
             
             if page:
                 await page.close()
