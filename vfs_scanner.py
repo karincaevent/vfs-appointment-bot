@@ -22,10 +22,45 @@ class VFSScanner:
         self.context: Optional[BrowserContext] = None
         self.playwright = None
         
-    async def init_browser(self):
+     async def init_browser(self):
         """Initialize browser with stealth mode and proxy support"""
         self.playwright = await async_playwright().start()
         
+        # 🔥 NEW: Try BrightData Scraping Browser (CloudFlare bypass built-in!)
+        if self.proxy_config:
+            try:
+                print("🌐 Attempting to connect to BrightData Scraping Browser...")
+                
+                # BrightData Scraping Browser WebSocket endpoint
+                # Format: wss://USERNAME:PASSWORD@brd.superproxy.io:9222
+                ws_endpoint = (
+                    f"wss://{self.proxy_config['proxy_username']}:{self.proxy_config['proxy_password']}"
+                    f"@brd.superproxy.io:9222"
+                )
+                
+                print(f"   Endpoint: wss://***:***@brd.superproxy.io:9222")
+                
+                # Connect via Chrome DevTools Protocol
+                self.browser = await self.playwright.chromium.connect_over_cdp(ws_endpoint)
+                
+                # Use default context (BrightData manages it)
+                if len(self.browser.contexts) > 0:
+                    self.context = self.browser.contexts[0]
+                else:
+                    self.context = await self.browser.new_context(
+                        viewport={'width': 1920, 'height': 1080},
+                        locale='tr-TR',
+                        timezone_id='Europe/Istanbul',
+                    )
+                
+                print("✅ Connected to BrightData Scraping Browser (CloudFlare bypass enabled!)") 
+                return  # Success! Skip normal browser launch
+                
+            except Exception as e:
+                print(f"⚠️  BrightData Scraping Browser failed: {e}")
+                print(f"   Falling back to normal proxy mode...")
+        
+        # Fallback: Normal browser launch with proxy
         # Browser launch options
         launch_options = {
             'headless': self.headless,
@@ -34,7 +69,12 @@ class VFSScanner:
                 '--disable-dev-shm-usage',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-            ]
+                '--disable-web-security',  # 🔥 NEW: Disable web security for proxy
+                '--disable-features=IsolateOrigins,site-per-process',  # 🔥 NEW: Better proxy compatibility
+                '--disable-site-isolation-trials',  # 🔥 NEW
+                '--window-size=1920,1080',  # 🔥 NEW: Set window size
+            ],
+            'chromium_sandbox': False,  # 🔥 NEW: Disable sandbox for Railway
         }
         
         # 🔥 ADD PROXY WITH AUTHENTICATION (BrightData)
@@ -54,7 +94,7 @@ class VFSScanner:
         
         self.browser = await self.playwright.chromium.launch(**launch_options)
         
-              # Create context with realistic settings
+        # Create context with realistic settings
         self.context = await self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
             user_agent=HumanBehavior.get_random_user_agent(),
