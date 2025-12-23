@@ -178,11 +178,46 @@ class VFSScanner:
                 dashboard_url = f"{config['base_url']}/dashboard"
                 print(f"📍 Navigating to dashboard: {dashboard_url}")
                 await page.goto(dashboard_url, wait_until='networkidle', timeout=config['timeout'])
-                await asyncio.sleep(2)
+                
+                # 🔥 WAIT FOR JAVASCRIPT TO EXECUTE (Angular/React app needs time)
+                print(f"⏳ Waiting for JavaScript to load...")
+                await asyncio.sleep(5)  # Give extra time for SPA to hydrate
+                
+                # Wait for network to be idle again
+                await page.wait_for_load_state('networkidle', timeout=config['timeout'])
+                print(f"✅ JavaScript loaded")
                 
                 # 🔥 VERIFY SESSION AFTER RELOAD
                 print(f"🔍 Verifying session after reload...")
                 try:
+                    # 🔥 FIRST: Check for Cloudflare challenge
+                    cloudflare_check = await page.evaluate('''() => {
+                        const html = document.documentElement.innerHTML;
+                        const bodyText = document.body ? document.body.innerText : '';
+                        
+                        return {
+                            has_cf_challenge: html.includes('cf-challenge') || html.includes('Just a moment') || html.includes('Checking your browser'),
+                            has_cf_captcha: html.includes('cf-captcha') || bodyText.includes('Verify you are human'),
+                            page_html_length: html.length,
+                            body_text_length: bodyText.length
+                        };
+                    }''')
+                    
+                    print(f"   🛡️  Cloudflare Check:")
+                    print(f"      Has Challenge: {cloudflare_check['has_cf_challenge']}")
+                    print(f"      Has Captcha: {cloudflare_check['has_cf_captcha']}")
+                    print(f"      HTML Length: {cloudflare_check['page_html_length']} bytes")
+                    print(f"      Body Text Length: {cloudflare_check['body_text_length']} chars")
+                    
+                    if cloudflare_check['has_cf_challenge'] or cloudflare_check['has_cf_captcha']:
+                        print(f"❌ CLOUDFLARE CHALLENGE DETECTED!")
+                        print(f"   Session injection method FAILED - Cloudflare is blocking.")
+                        raise Exception("Cloudflare challenge detected")
+                    
+                    if cloudflare_check['page_html_length'] < 1000:
+                        print(f"⚠️  WARNING: Page HTML is suspiciously small ({cloudflare_check['page_html_length']} bytes)")
+                        print(f"   This might indicate a loading error or challenge page.")
+                    
                     session_check = await page.evaluate('''() => {
                         return {
                             has_jwt: !!sessionStorage.getItem('JWT'),
