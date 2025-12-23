@@ -148,7 +148,7 @@ class VFSScanner:
                         'session_saved': False,
                     }
                 
-                      # 🔥 INJECT SESSION INTO sessionStorage
+                # 🔥 INJECT SESSION INTO sessionStorage
                 print(f"💉 Injecting session data...")
                 try:
                     # Use JSON.stringify to safely escape special characters
@@ -173,6 +173,30 @@ class VFSScanner:
                 print(f"🔄 Reloading page...")
                 await page.reload(wait_until='networkidle')
                 await asyncio.sleep(2)
+                
+                # 🔥 VERIFY SESSION AFTER RELOAD
+                print(f"🔍 Verifying session after reload...")
+                try:
+                    session_check = await page.evaluate('''() => {
+                        return {
+                            has_jwt: !!sessionStorage.getItem('JWT'),
+                            has_csk: !!sessionStorage.getItem('csk_str'),
+                            has_email: !!sessionStorage.getItem('logged_email'),
+                            current_url: window.location.href,
+                            page_title: document.title
+                        };
+                    }''')
+                    print(f"   JWT in sessionStorage: {session_check['has_jwt']}")
+                    print(f"   csk_str in sessionStorage: {session_check['has_csk']}")
+                    print(f"   Current URL: {session_check['current_url']}")
+                    print(f"   Page Title: {session_check['page_title']}")
+                    
+                    if not session_check['has_jwt']:
+                        print(f"❌ SESSION LOST AFTER RELOAD! Falling back to login...")
+                        # Session lost, skip to fallback login
+                        raise Exception("Session lost after reload")
+                except Exception as e:
+                    print(f"⚠️  Session verification failed: {e}")
                 
                 # Navigate to booking page
                 print(f"📍 Navigating to appointment booking...")
