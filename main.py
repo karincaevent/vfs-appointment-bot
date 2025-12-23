@@ -55,6 +55,7 @@ class ScanRequest(BaseModel):
     user_id: Optional[str] = None
     vfs_credentials: Optional[dict] = None
     email_credentials: Optional[dict] = None
+    vfs_session: Optional[dict] = None  # 🔥 YENİ: Manuel session support
 
 
 class ScanResponse(BaseModel):
@@ -72,7 +73,7 @@ async def root():
     return {
         "service": "VFS Scanner Worker",
         "status": "running",
-        "version": "1.2.0"
+        "version": "2.1.0"  # 🔥 Version güncellendi
     }
 
 
@@ -106,6 +107,12 @@ async def scan_country(
             "email_credentials": {
                 "email": "user@gmail.com",
                 "password": "app_password"
+            },
+            "vfs_session": {
+                "JWT": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "csk_str": "-----BEGIN PUBLIC KEY-----...",
+                "logged_email": "user@example.com",
+                "ip": "123.456.789.0"
             }
         }
     
@@ -138,7 +145,19 @@ async def scan_country(
         "user_id": request.user_id,
         "has_vfs_credentials": request.vfs_credentials is not None,
         "has_email_credentials": request.email_credentials is not None,
+        "has_vfs_session": request.vfs_session is not None,  # 🔥 YENİ LOG
     })
+    
+    # 🔥 YENİ: VFS Session kontrolü (ÖNCE BUNU KONTROL ET!)
+    if request.vfs_session:
+        print(f"🚀 Using MANUAL SESSION (Cloudflare bypass)")
+        print(f"💉 Injecting session data:")
+        print(f"   JWT: {request.vfs_session.get('JWT', 'N/A')[:50]}...")  # İlk 50 karakter
+        print(f"   CSK: {request.vfs_session.get('csk_str', 'N/A')[:50]}...")
+        print(f"   Email: {request.vfs_session.get('logged_email', 'N/A')}")
+        print(f"   IP: {request.vfs_session.get('ip', 'N/A')}")
+    else:
+        print(f"⚠️  No VFS session provided, will attempt login with credentials")
     
     # Log VFS credentials if provided
     if request.vfs_credentials:
@@ -161,13 +180,14 @@ async def scan_country(
         except Exception as e:
             print(f"❌ Password decryption failed: {e}")
     
-    # Pass credentials to scanner
+    # 🔥 YENİ: Pass ALL data to scanner (credentials + session)
     result = await scanner.scan_country(
         country_code=request.country_code,
         country_name=request.country_name,
         user_id=request.user_id,
         vfs_credentials=request.vfs_credentials,
-        email_credentials=request.email_credentials
+        email_credentials=request.email_credentials,
+        vfs_session=request.vfs_session  # 🔥 YENİ: Session'ı gönder!
     )
     
     print(f"✅ Scan complete: {result['message']}")
@@ -215,7 +235,16 @@ async def scan_batch(
     
     for i, country in enumerate(countries):
         print(f"📋 Scanning {i+1}/{len(countries)}: {country.country_name} ({country.country_code})")
-        result = await scanner.scan_country(country.country_code, country.country_name)
+        
+        # 🔥 YENİ: Pass session to batch scan too
+        result = await scanner.scan_country(
+            country.country_code, 
+            country.country_name,
+            user_id=country.user_id,
+            vfs_credentials=country.vfs_credentials,
+            email_credentials=country.email_credentials,
+            vfs_session=country.vfs_session  # 🔥 YENİ
+        )
         results.append(result)
         
         if result['has_appointment']:
