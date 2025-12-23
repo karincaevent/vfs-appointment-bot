@@ -148,19 +148,26 @@ class VFSScanner:
                         'session_saved': False,
                     }
                 
-                # 🔥 INJECT SESSION INTO sessionStorage
+                      # 🔥 INJECT SESSION INTO sessionStorage
                 print(f"💉 Injecting session data...")
                 try:
+                    # Use JSON.stringify to safely escape special characters
+                    import json
+                    jwt_value = json.dumps(vfs_session.get("JWT", ""))
+                    csk_str_value = json.dumps(vfs_session.get("csk_str", ""))
+                    email_value = json.dumps(vfs_session.get("logged_email", ""))
+                    
                     await page.evaluate(f'''() => {{
-                        sessionStorage.setItem('JWT', '{vfs_session.get("JWT")}');
-                        sessionStorage.setItem('csk_str', '{vfs_session.get("csk_str")}');
-                        if ('{vfs_session.get("logged_email", "")}') {{
-                            sessionStorage.setItem('logged_email', '{vfs_session.get("logged_email", "")}');
+                        sessionStorage.setItem('JWT', {jwt_value});
+                        sessionStorage.setItem('csk_str', {csk_str_value});
+                        if ({email_value}) {{
+                            sessionStorage.setItem('logged_email', {email_value});
                         }}
                     }}''')
-                    print(f"✅ Session injected")
+                    print(f"✅ Session injected successfully")
                 except Exception as e:
-                    print(f"⚠️  Session injection warning: {e}")
+                    print(f"❌ Session injection failed: {e}")
+                    # Continue anyway - maybe login flow will work
                 
                 # Reload to apply session
                 print(f"🔄 Reloading page...")
