@@ -117,8 +117,9 @@ class VFSScanner:
             print(f"🌍 Scanning {country_name} ({country_code})")
             
             # 🔥 PRIORITY 1: Check if manual session provided (Cloudflare bypass)
-            # Manual session is HIGHEST PRIORITY because it bypasses Cloudflare!
-            if vfs_session and vfs_session.get('JWT') and vfs_session.get('csk_str'):
+            # ❌ DISABLED: Session injection doesn't work - Cloudflare detects different IP/TLS fingerprint
+            # Use auto-login instead (PRIORITY 2 below)
+            if False and vfs_session and vfs_session.get('JWT') and vfs_session.get('csk_str'):
                 print(f"🚀 Using MANUAL SESSION (Cloudflare bypass)")
                 print(f"   JWT: {vfs_session.get('JWT')[:50]}...")
                 print(f"   csk_str: {vfs_session.get('csk_str')[:50]}...")
