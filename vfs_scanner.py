@@ -21,8 +21,8 @@ class VFSScanner:
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.playwright = None
-        
-     async def init_browser(self):
+    
+    async def init_browser(self):
         """Initialize browser with stealth mode and proxy support"""
         self.playwright = await async_playwright().start()
         
@@ -102,7 +102,7 @@ class VFSScanner:
             timezone_id='Europe/Istanbul',
             ignore_https_errors=True,  # 🔥 NEW: Ignore SSL errors when using proxy
         )
-        
+    
     async def close_browser(self):
         """Close browser"""
         if self.context:
@@ -111,7 +111,7 @@ class VFSScanner:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
-            
+    
     async def scan_country(
         self, 
         country_code: str, 
