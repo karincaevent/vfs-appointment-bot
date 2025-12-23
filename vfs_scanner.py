@@ -3,6 +3,7 @@ VFS Global Appointment Scanner
 Playwright-based scraper with stealth mode and country-specific configs
 """
 import asyncio
+import json  # 🔥 YENİ: JSON import eklendi
 import random
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -68,7 +69,7 @@ class VFSScanner:
         vfs_credentials: dict = None,
         email_credentials: dict = None,
         session_data: dict = None,
-        vfs_session: dict = None,  # 🔥 FIX: ADDED THIS PARAMETER!
+        vfs_session: dict = None,  # 🔥 Manual session support
     ) -> Dict:
         """
         Scan VFS Global for appointments in a specific country
@@ -133,41 +134,75 @@ class VFSScanner:
                         'session_saved': False,
                     }
                 
-                # 🔥 INJECT SESSION INTO sessionStorage
+                # 🔥 FIXED: INJECT SESSION INTO sessionStorage (using JSON for safety)
                 print(f"💉 Injecting session data...")
                 try:
+                    # Convert session data to JSON string (safe for JS injection)
+                    session_json = json.dumps(vfs_session)
+                    
                     await page.evaluate(f'''() => {{
-                        sessionStorage.setItem('JWT', '{vfs_session.get("JWT")}');
-                        sessionStorage.setItem('csk_str', '{vfs_session.get("csk_str")}');
+                        const sessionData = {session_json};
+                        sessionStorage.setItem('JWT', sessionData.JWT);
+                        sessionStorage.setItem('csk_str', sessionData.csk_str);
+                        if (sessionData.logged_email) {{
+                            sessionStorage.setItem('logged_email', sessionData.logged_email);
+                        }}
+                        if (sessionData.ip) {{
+                            sessionStorage.setItem('user_ip', sessionData.ip);
+                        }}
+                        console.log('✅ Session injected:', Object.keys(sessionData));
                     }}''')
-                    print(f"✅ Session injected")
+                    print(f"✅ Session injected successfully")
                 except Exception as e:
-                    print(f"⚠️  Session injection warning: {e}")
+                    print(f"⚠️  Session injection error: {e}")
+                    # Continue anyway - maybe cookies will work
                 
                 # Reload to apply session
-                print(f"🔄 Reloading page...")
-                await page.reload(wait_until='networkidle')
+                print(f"🔄 Reloading page to apply session...")
+                await page.reload(wait_until='networkidle', timeout=config['timeout'])
                 await asyncio.sleep(2)
+                
+                # Check if logged in
+                try:
+                    # Look for logged-in indicators
+                    logged_in = False
+                    for selector in ['text="Çıkış"', 'text="Logout"', 'text="My Account"', 'a[href*="logout"]']:
+                        if await page.locator(selector).count() > 0:
+                            logged_in = True
+                            print(f"✅ Login verified: Found {selector}")
+                            break
+                    
+                    if not logged_in:
+                        print(f"⚠️  Login status unclear - proceeding anyway")
+                except Exception as e:
+                    print(f"⚠️  Could not verify login: {e}")
                 
                 # Navigate to booking page
                 print(f"📍 Navigating to appointment booking...")
                 booking_clicked = False
-                for selector in ['text="Yeni Rezervasyon Başlat"', 'text="New Reservation"', 'a[href*="new-booking"]']:
+                
+                for selector in ['text="Yeni Rezervasyon Başlat"', 'text="New Reservation"', 'text="Start New Booking"', 'a[href*="new-booking"]']:
                     try:
                         if await page.locator(selector).count() > 0:
                             await page.click(selector)
                             booking_clicked = True
                             print(f"✅ Clicked: {selector}")
+                            await asyncio.sleep(2)
                             break
                     except:
                         continue
                 
                 if not booking_clicked:
                     print(f"⚠️  Trying direct appointment URL...")
-                    await page.goto(f"{config['base_url']}/appointment", wait_until='networkidle', timeout=config['timeout'])
+                    appt_url = f"{config['base_url']}/appointment"
+                    await page.goto(appt_url, wait_until='networkidle', timeout=config['timeout'])
                 
                 await page.wait_for_load_state('networkidle')
+                
+                # Simulate human interaction
+                print(f"👤 Simulating human page interaction...")
                 await HumanBehavior.simulate_full_page_interaction(page)
+                print(f"✅ Human interaction simulation complete")
             
             # If credentials provided, use login flow
             elif vfs_credentials and user_id:
