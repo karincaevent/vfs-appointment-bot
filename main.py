@@ -36,10 +36,10 @@ async def startup_event():
     """Initialize browser on startup"""
     global scanner
     print("🚀 Initializing VFS Scanner...")
-    scanner = VFSScanner(headless=True)
-    await scanner.init_browser()
-    print("✅ Scanner ready!")
-
+    # ❌ DON'T initialize scanner here - we need proxy_config from each request
+    # Scanner will be initialized on first scan request
+    scanner = None  # Will be created per-request with proper proxy config
+    print("✅ Scanner ready (will initialize on first request)!")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -127,15 +127,17 @@ async def scan_country(
     #     raise HTTPException(status_code=403, detail="Invalid secret key")
     
     # Scan country
-    if not scanner:
-        raise HTTPException(status_code=503, detail="Scanner not initialized")
+    # 🔥 NEW: Initialize scanner with proxy config (per-request initialization)
+    global scanner
     
     print(f"📋 Scanning: {request.country_name} ({request.country_code})")
     print(f"📦 Full request received:", {
         "country_code": request.country_code,
         "country_name": request.country_name,
         "has_vfs_credentials": request.vfs_credentials is not None,
-        "vfs_credentials_keys": list(request.vfs_credentials.keys()) if request.vfs_credentials else []
+        "vfs_credentials_keys": list(request.vfs_credentials.keys()) if request.vfs_credentials else [],
+        "has_proxy_config": request.proxy_config is not None,  # 🔥 NEW: Log proxy config presence
+        "proxy_config": request.proxy_config if request.proxy_config else None  # 🔥 NEW: Log full proxy config
     })
     
     # 🔥 NEW: Log credentials status
@@ -157,6 +159,16 @@ async def scan_country(
             print(f"🔓 Password decrypted successfully")
         except Exception as e:
             print(f"⚠️  Password decryption failed: {e}")
+    
+    # 🔥 NEW: Initialize scanner with proxy config if not already initialized
+    if scanner is None or request.proxy_config:
+        if scanner:
+            print("🔄 Reinitializing scanner with new proxy config...")
+            await scanner.close_browser()
+        
+        scanner = VFSScanner(headless=True, proxy_config=request.proxy_config)
+        await scanner.init_browser()
+        print("✅ Scanner initialized with proxy config!")
     
     # 🔥 NEW: Perform scan with credentials
     result = await scanner.scan_country(
@@ -222,10 +234,7 @@ async def scan_batch(
             country_code=country.country_code,
             country_name=country.country_name,
             user_id="demo-user",  # 🔥 FIXED USER ID
-            vfs_credentials=country.vfs_credentials,  # 🔥 PASS CREDENTIALS!
-            email_credentials=country.email_credentials,  # 🔥 PASS EMAIL CREDENTIALS!
-            vfs_session=country.vfs_session,  # 🔥 NEW: PASS MANUAL SESSION!
-            proxy_config=country.proxy_config  # 🔥 NEW: PASS PROXY CONFIG!
+            vfs_credentials=country.vfs_credentials  # 🔥 PASS CREDENTIALS!
         )
         results.append(result)
         
