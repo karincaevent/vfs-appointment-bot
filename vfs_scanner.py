@@ -54,12 +54,13 @@ class VFSScanner:
         
         self.browser = await self.playwright.chromium.launch(**launch_options)
         
-        # Create context with realistic settings
+              # Create context with realistic settings
         self.context = await self.browser.new_context(
             viewport={'width': 1920, 'height': 1080},
             user_agent=HumanBehavior.get_random_user_agent(),
             locale='tr-TR',
             timezone_id='Europe/Istanbul',
+            ignore_https_errors=True,  # 🔥 NEW: Ignore SSL errors when using proxy
         )
         
     async def close_browser(self):
