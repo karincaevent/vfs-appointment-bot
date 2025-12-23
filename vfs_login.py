@@ -70,11 +70,10 @@ async def login_to_vfs(
     
     Flow:
     1. Go DIRECTLY to login page (skip homepage!)
-    2. Check for maintenance mode and bot detection
-    3. Enter email and password
-    4. Read OTP from email (or wait for manual input)
-    5. Enter OTP and verify
-    6. Navigate to dashboard
+    2. Enter email and password
+    3. Read OTP from email (or wait for manual input)
+    4. Enter OTP and verify
+    5. Navigate to dashboard
     
     Args:
         page: Playwright page
@@ -87,12 +86,11 @@ async def login_to_vfs(
         {
             'success': bool,
             'message': str,
-            'otp_method': 'auto' | 'manual' | 'failed' | 'maintenance'
+            'otp_method': 'auto' | 'manual' | 'failed'
         }
     """
     try:
         # Go DIRECTLY to login page, not homepage!
-        # URL Format: https://visa.vfsglobal.com/tur/tr/nld/login
         login_url = f"https://visa.vfsglobal.com/tur/tr/{country_code.lower()}/login"
         
         logger.info(f"🌍 Navigating DIRECTLY to login page: {login_url}")
@@ -100,6 +98,40 @@ async def login_to_vfs(
         
         # Apply stealth
         await stealth_async(page)
+        
+        # 🔥 NEW: Additional anti-detection (WebDriver, Chrome object, etc.)
+        await page.add_init_script("""
+            // Hide WebDriver
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            
+            // Add Chrome object
+            window.chrome = {
+                runtime: {},
+                loadTimes: function() {},
+                csi: function() {},
+                app: {}
+            };
+            
+            // Override permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+            
+            // Plugin array
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            
+            // Languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['tr-TR', 'tr', 'en-US', 'en']
+            });
+        """)
         
         # 1. Go to login page
         try:
@@ -113,17 +145,57 @@ async def login_to_vfs(
                 'otp_method': 'failed'
             }
         
+        # 🔥 NEW: Wait for CloudFlare challenge to resolve (if present)
+        logger.info("⏳ Waiting for CloudFlare challenge (if any)...")
+        await human_like_delay(3000, 5000)  # Initial wait
+        
+        # Check if CloudFlare challenge is present
+        try:
+            cloudflare_detected = await page.evaluate("""
+                () => {
+                    const title = document.title.toLowerCase();
+                    const body = document.body.innerHTML.toLowerCase();
+                    return title.includes('just a moment') || 
+                           body.includes('checking your browser') ||
+                           body.includes('cf-challenge');
+                }
+            """)
+            
+            if cloudflare_detected:
+                logger.info("⚠️  CloudFlare challenge detected, waiting up to 15s...")
+                await asyncio.sleep(15)  # Give CloudFlare time to resolve
+                
+                # Check again
+                cloudflare_still_there = await page.evaluate("""
+                    () => {
+                        const title = document.title.toLowerCase();
+                        return title.includes('just a moment');
+                    }
+                """)
+                
+                if cloudflare_still_there:
+                    logger.error("❌ CloudFlare challenge still blocking after 15s!")
+                    logger.error("   This may indicate the proxy is flagged.")
+                    await page.screenshot(path='/tmp/cloudflare_block.png')
+                    return {
+                        'success': False,
+                        'message': 'CloudFlare challenge failed',
+                        'otp_method': 'failed'
+                    }
+                else:
+                    logger.info("✅ CloudFlare challenge passed!")
+        except Exception as e:
+            logger.warning(f"Could not check CloudFlare status: {e}")
+        
         # Wait for page to settle
         await human_like_delay(2000, 4000)
         
         logger.info("📍 Step 1/6: Login page ready")
         
-        # ===== DEBUG SECTION: CRITICAL FOR DIAGNOSING ISSUES =====
-        
         # DEBUG: Take screenshot AND encode as base64 for logging
         try:
             screenshot_path = '/tmp/vfs_login_page.png'
-            await page.screenshot(path=screenshot_path, full_page=True)
+            await page.screenshot(path=screenshot_path)
             logger.info(f"📸 Screenshot saved: {screenshot_path}")
             
             # Also encode as base64 so we can see it in logs
@@ -146,147 +218,77 @@ async def login_to_vfs(
             html_lower = page_html.lower()
             
             if 'cloudflare' in html_lower:
-                logger.warning("⚠️  CLOUDFLARE DETECTED in page HTML!")
-                logger.warning("   This indicates bot protection is active")
-                logger.warning("   Solution: Use residential proxy")
+                logger.info("ℹ️  Cloudflare detected (normal with proxy)")
             
             if 'verify you are human' in html_lower or 'turnstile' in html_lower:
                 logger.warning("⚠️  CAPTCHA/TURNSTILE DETECTED!")
-                logger.warning("   VFS is showing CAPTCHA challenge")
-                logger.warning("   Solution: Residential proxy + CAPTCHA solver")
             
             if 'access denied' in html_lower or '403' in html_lower:
                 logger.warning("⚠️  ACCESS DENIED detected!")
-                logger.warning("   Railway IP is blocked by VFS")
-                logger.warning("   Solution: Use residential proxy")
             
             if 'bot' in html_lower and 'detected' in html_lower:
                 logger.warning("⚠️  BOT DETECTION message found!")
-                logger.warning("   VFS detected automated access")
             
             if 'maintenance' in html_lower or 'bakım' in html_lower:
                 logger.warning("⚠️  MAINTENANCE MODE detected in HTML!")
-                logger.warning("   VFS system is under maintenance")
-                return {
-                    'success': False,
-                    'message': 'VFS system maintenance in progress',
-                    'otp_method': 'maintenance'
-                }
         except Exception as e:
             logger.warning(f"Could not get page HTML: {e}")
         
         # DEBUG: Page info
         try:
-            page_title = await page.title()
-            current_url = page.url
-            
-            logger.info(f"📄 Page title: {page_title}")
-            logger.info(f"📄 Current URL: {current_url}")
+            logger.info(f"📄 Page title: {await page.title()}")
+            logger.info(f"📄 Current URL: {page.url}")
             
             # Check if we got redirected
-            if 'login' not in current_url.lower():
-                logger.warning(f"⚠️  REDIRECTED! Expected /login but got: {current_url}")
-                
-                if 'dashboard' in current_url.lower():
-                    logger.info("✅ Already logged in! Redirected to dashboard")
-                    return {
-                        'success': True,
-                        'message': 'Already logged in',
-                        'otp_method': 'session'
-                    }
-                elif 'maintenance' in current_url.lower():
-                    logger.warning("⚠️  Redirected to maintenance page")
-                    return {
-                        'success': False,
-                        'message': 'VFS maintenance mode',
-                        'otp_method': 'maintenance'
-                    }
+            if 'login' not in page.url.lower():
+                logger.warning(f"⚠️  REDIRECTED! Expected /login but got: {page.url}")
         except Exception as e:
             logger.warning(f"Could not get page info: {e}")
         
-        # ===== END DEBUG SECTION =====
-        
-        # CHECK FOR MAINTENANCE MODE (CRITICAL!)
-        logger.info("🔍 Step 2/6: Checking for maintenance mode...")
-        maintenance_selectors = [
-            'text="Sistem Bakımı"',
-            'text="Planlanmış Sistem Bakımı"',
-            'text="Maintenance"',
-            'text="System Maintenance"',
-            'text="bakım nedeniyle"',
-            'text="temporarily unavailable"',
-        ]
-        
-        for selector in maintenance_selectors:
-            try:
-                if await page.locator(selector).count() > 0:
-                    logger.warning("⚠️  VFS IS IN MAINTENANCE MODE!")
-                    logger.warning("   System is temporarily unavailable")
-                    logger.warning("   Bot will retry on next scan")
-                    return {
-                        'success': False,
-                        'message': 'VFS system maintenance in progress',
-                        'otp_method': 'maintenance'
-                    }
-            except:
-                continue
-        
-        logger.info("✅ No maintenance mode detected")
-        
         # Handle COOKIE CONSENT if present
-        logger.info("🍪 Step 3/6: Checking for cookie consent...")
+        logger.info("🍪 Checking for cookie consent...")
         cookie_selectors = [
             'button:has-text("Kabul Et")',
             'button:has-text("Hepsini Kabul Et")',
             'button:has-text("Accept")',
             'button:has-text("Accept All")',
-            'button:has-text("kapatmak")',  # From screenshot: "kapatmak" button
             '#onetrust-accept-btn-handler',
         ]
         
-        cookie_handled = False
         for selector in cookie_selectors:
             try:
                 if await page.locator(selector).count() > 0:
-                    logger.info(f"✅ Found cookie/banner button: {selector}")
+                    logger.info(f"✅ Found cookie button: {selector}")
                     await click_with_human_behavior(page, selector)
                     await human_like_delay(1000, 2000)
-                    logger.info("✅ Banner closed")
-                    cookie_handled = True
+                    logger.info("✅ Cookie accepted")
                     break
             except:
                 continue
         
-        if not cookie_handled:
-            logger.info("ℹ️  No cookie popup/banner found")
-        
-        # Fill login form
-        logger.info("📧 Step 4/6: Entering email and password")
+        # 2. Fill login form
+        logger.info("📧 Step 2/5: Entering email and password")
         
         # Email field
         email_selectors = [
             'input[type="email"]',
             'input[name="email"]',
             'input[id="email"]',
-            'input[placeholder*="email" i]',
-            'input[placeholder*="e-posta" i]',
             '#mat-input-0',  # Common Angular Material ID
         ]
         
-        email_entered = False
+        email_found = False
         for selector in email_selectors:
             try:
-                count = await page.locator(selector).count()
-                if count > 0:
+                if await page.locator(selector).count() > 0:
                     await human_like_typing(page, selector, email)
                     logger.info(f"✅ Email entered via {selector}")
-                    email_entered = True
+                    email_found = True
                     break
-            except Exception as e:
-                logger.debug(f"Email selector {selector} failed: {e}")
+            except:
                 continue
         
-        if not email_entered:
+        if not email_found:
             logger.error("❌ Could not find email input field")
             logger.error("   This could mean:")
             logger.error("   1. Page is redirecting (already logged in?)")
@@ -294,6 +296,15 @@ async def login_to_vfs(
             logger.error("   3. Bot detection blocking access")
             logger.error("   4. Page structure changed")
             logger.error("   CHECK THE HTML OUTPUT ABOVE FOR CLUES!")
+            
+            # Take additional screenshot for debugging
+            try:
+                error_screenshot = '/tmp/vfs_login_error.png'
+                await page.screenshot(path=error_screenshot, full_page=True)
+                logger.error(f"📸 Error screenshot saved: {error_screenshot}")
+            except:
+                pass
+            
             return {
                 'success': False,
                 'message': 'Email input field not found',
@@ -307,94 +318,50 @@ async def login_to_vfs(
             'input[type="password"]',
             'input[name="password"]',
             'input[id="password"]',
-            'input[placeholder*="password" i]',
-            'input[placeholder*="şifre" i]',
             '#mat-input-1',  # Common Angular Material ID
         ]
         
-        password_entered = False
         for selector in password_selectors:
             try:
-                count = await page.locator(selector).count()
-                if count > 0:
+                if await page.locator(selector).count() > 0:
                     await human_like_typing(page, selector, password)
                     logger.info(f"✅ Password entered via {selector}")
-                    password_entered = True
                     break
-            except Exception as e:
-                logger.debug(f"Password selector {selector} failed: {e}")
+            except:
                 continue
-        
-        if not password_entered:
-            logger.error("❌ Could not find password input field")
-            return {
-                'success': False,
-                'message': 'Password input field not found',
-                'otp_method': 'failed'
-            }
         
         await human_like_delay(1000, 2000)
         
         # Submit login
-        logger.info("🚀 Step 5/6: Submitting login form")
-        
         submit_selectors = [
             'button[type="submit"]',
             'button:has-text("Sign In")',
             'button:has-text("Giriş")',
-            'button:has-text("Oturum Aç")',
             '.login-button',
-            '.submit-button',
         ]
         
-        submitted = False
         for selector in submit_selectors:
             try:
-                count = await page.locator(selector).count()
-                if count > 0:
-                    logger.info(f"✅ Found submit button: {selector}")
+                if await page.locator(selector).count() > 0:
+                    logger.info("🚀 Step 3/5: Submitting login form")
                     await click_with_human_behavior(page, selector)
-                    submitted = True
                     break
-            except Exception as e:
-                logger.debug(f"Submit selector {selector} failed: {e}")
+            except:
                 continue
         
-        if not submitted:
-            logger.warning("⚠️  Could not find submit button, trying Enter key")
-            try:
-                await page.keyboard.press('Enter')
-                logger.info("✅ Pressed Enter key")
-            except Exception as e:
-                logger.error(f"❌ Could not submit form: {e}")
-                return {
-                    'success': False,
-                    'message': 'Submit button not found',
-                    'otp_method': 'failed'
-                }
-        
         # Wait for OTP page
-        await page.wait_for_load_state('networkidle', timeout=15000)
+        await page.wait_for_load_state('networkidle', timeout=10000)
         await human_like_delay(2000, 3000)
         
-        logger.info("📱 Step 6/6: OTP verification required")
+        logger.info("📱 Step 4/5: OTP verification required")
         
-        # Take screenshot after submit
-        try:
-            await page.screenshot(path='/tmp/vfs_after_submit.png')
-            logger.info("📸 After submit screenshot: /tmp/vfs_after_submit.png")
-            logger.info(f"📄 Current URL: {page.url}")
-        except:
-            pass
-        
-        # Get OTP
+        # 3. Get OTP
         otp_code = None
         otp_method = 'failed'
         
         # Try auto-reading from email
         if email_credentials and email_credentials.get('email_address'):
             logger.info("📧 Attempting to read OTP from email...")
-            logger.info(f"   Email: {email_credentials.get('email_address')}")
             
             try:
                 otp_code = read_otp_from_email(
@@ -402,7 +369,7 @@ async def login_to_vfs(
                     email_password=email_credentials['email_password'],  # Should be decrypted
                     imap_server=email_credentials.get('imap_server', 'imap.gmail.com'),
                     imap_port=email_credentials.get('imap_port', 993),
-                    timeout_seconds=60,  # Increased to 60 seconds
+                    timeout_seconds=30,
                     from_domain='vfsglobal.com'
                 )
                 
@@ -410,62 +377,42 @@ async def login_to_vfs(
                     logger.info(f"✅ OTP auto-read: {otp_code}")
                     otp_method = 'auto'
                 else:
-                    logger.warning("⚠️  OTP email not received within 60 seconds")
+                    logger.warning("⚠️  OTP email not received within timeout")
             except Exception as e:
                 logger.error(f"❌ Error reading OTP from email: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-        else:
-            logger.warning("⚠️  No email credentials provided for OTP auto-read")
         
         # Fallback to manual input
         if not otp_code:
             logger.warning("⚠️  Falling back to manual OTP input")
-            logger.warning("   Please check your email for OTP code")
             otp_code = await wait_for_otp_manual(timeout_seconds=120)
             otp_method = 'manual'
         
         if not otp_code:
-            logger.error("❌ No OTP code provided")
             return {
                 'success': False,
-                'message': 'OTP not provided - check email credentials',
+                'message': 'OTP not provided',
                 'otp_method': otp_method
             }
         
-        # Enter OTP
-        logger.info("🔢 Entering OTP code...")
+        # 4. Enter OTP
+        logger.info("🔢 Step 5/5: Entering OTP")
         
         otp_selectors = [
             'input[type="text"][maxlength="6"]',
-            'input[type="text"][maxlength="4"]',
             'input[name="otp"]',
             'input[id="otp"]',
-            'input[placeholder*="OTP" i]',
-            'input[placeholder*="code" i]',
-            'input[placeholder*="kod" i]',
+            'input[placeholder*="OTP"]',
+            'input[placeholder*="code"]',
         ]
         
-        otp_entered = False
         for selector in otp_selectors:
             try:
-                count = await page.locator(selector).count()
-                if count > 0:
+                if await page.locator(selector).count() > 0:
                     await human_like_typing(page, selector, otp_code)
                     logger.info(f"✅ OTP entered via {selector}")
-                    otp_entered = True
                     break
-            except Exception as e:
-                logger.debug(f"OTP selector {selector} failed: {e}")
+            except:
                 continue
-        
-        if not otp_entered:
-            logger.error("❌ Could not find OTP input field")
-            return {
-                'success': False,
-                'message': 'OTP input field not found',
-                'otp_method': otp_method
-            }
         
         await human_like_delay(500, 1000)
         
@@ -475,48 +422,34 @@ async def login_to_vfs(
             'button:has-text("Verify")',
             'button:has-text("Doğrula")',
             'button:has-text("Submit")',
-            'button:has-text("Gönder")',
         ]
         
         for selector in verify_selectors:
             try:
-                count = await page.locator(selector).count()
-                if count > 0:
-                    logger.info(f"✅ Submitting OTP via {selector}")
+                if await page.locator(selector).count() > 0:
+                    logger.info("✅ Submitting OTP")
                     await click_with_human_behavior(page, selector)
                     break
             except:
                 continue
         
         # Wait for redirect to dashboard
-        await page.wait_for_load_state('networkidle', timeout=20000)
+        await page.wait_for_load_state('networkidle', timeout=15000)
         await human_like_delay(2000, 3000)
         
-        # Take final screenshot
-        try:
-            await page.screenshot(path='/tmp/vfs_final.png')
-            logger.info("📸 Final screenshot: /tmp/vfs_final.png")
-            logger.info(f"📄 Final URL: {page.url}")
-        except:
-            pass
-        
-        # Check if login successful
+        # Check if login successful (look for dashboard elements)
         success_indicators = [
             'text="Dashboard"',
-            'text="Başvuru Detayları"',
             'text="Yeni Rezervasyon"',
             'text="New Reservation"',
             '.dashboard',
             'a[href*="dashboard"]',
-            'a[href*="application"]',
         ]
         
         login_success = False
         for indicator in success_indicators:
-            count = await page.locator(indicator).count()
-            if count > 0:
+            if await page.locator(indicator).count() > 0:
                 login_success = True
-                logger.info(f"✅ Found success indicator: {indicator}")
                 break
         
         if login_success:
@@ -528,26 +461,14 @@ async def login_to_vfs(
             }
         else:
             logger.error("❌ Login failed - dashboard not found")
-            logger.error(f"   Current URL: {page.url}")
             return {
                 'success': False,
-                'message': f'Login failed - current URL: {page.url}',
+                'message': 'Login failed - could not reach dashboard',
                 'otp_method': otp_method
             }
         
     except Exception as e:
         logger.error(f"❌ Login error: {e}")
-        logger.error(f"   Error type: {type(e).__name__}")
-        import traceback
-        logger.error(traceback.format_exc())
-        
-        # Take screenshot on error
-        try:
-            await page.screenshot(path='/tmp/vfs_error.png')
-            logger.info("📸 Error screenshot: /tmp/vfs_error.png")
-        except:
-            pass
-        
         return {
             'success': False,
             'message': f'Login error: {str(e)}',
@@ -589,18 +510,15 @@ async def ensure_logged_in(
             country_code = vfs_credentials.get('country_code', 'nld')
             dashboard_url = f"https://visa.vfsglobal.com/tur/tr/{country_code}/dashboard"
             
-            try:
-                await page.goto(dashboard_url, wait_until='networkidle', timeout=15000)
-                
-                # Check if still logged in
-                if await page.locator('text="Dashboard"').count() > 0 or \
-                   await page.locator('text="Yeni Rezervasyon"').count() > 0:
-                    logger.info("✅ Session restored successfully")
-                    return page, False
-                else:
-                    logger.warning("⚠️  Session expired, performing fresh login")
-            except Exception as e:
-                logger.warning(f"⚠️  Session restore failed: {e}")
+            await page.goto(dashboard_url, wait_until='networkidle', timeout=15000)
+            
+            # Check if still logged in
+            if await page.locator('text="Dashboard"').count() > 0 or \
+               await page.locator('text="Yeni Rezervasyon"').count() > 0:
+                logger.info("✅ Session restored successfully")
+                return page, False
+            else:
+                logger.warning("⚠️  Session expired, performing fresh login")
     
     # Fresh login required
     logger.info("🔐 Performing fresh login...")
