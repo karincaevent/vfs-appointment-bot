@@ -135,9 +135,10 @@ async def login_to_vfs(
         
        # 1. Go to login page
         try:
-            # Increase timeout to 60 seconds (proxy can be slow)
             await page.goto(login_url, wait_until='networkidle', timeout=60000)
             print("✅ Login page loaded")  # Changed to print
+        except Exception as e:
+            print(f"❌ Could not load login page: {e}")  # Changed to print
             return {
                 'success': False,
                 'message': f'Login page load failed: {str(e)}',
