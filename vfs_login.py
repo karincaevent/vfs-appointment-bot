@@ -1,4 +1,3 @@
-📄 İŞTE KOMPLE vfs_login.py KODU - KOPYALA YAPIŞTIR:
 """
 VFS Login Flow
 Handles login to VFS Global appointment system
