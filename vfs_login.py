@@ -1,3 +1,4 @@
+📄 İŞTE KOMPLE vfs_login.py KODU - KOPYALA YAPIŞTIR:
 """
 VFS Login Flow
 Handles login to VFS Global appointment system
@@ -90,6 +91,11 @@ async def login_to_vfs(
         }
     """
     try:
+        # ✅ CRITICAL FIX: Set longer timeouts to prevent browser/page from closing!
+        print("⚙️  Setting extended timeouts (2 minutes) to prevent premature closure...")
+        page.set_default_timeout(120000)  # 2 dakika
+        page.set_default_navigation_timeout(120000)  # 2 dakika
+        
         # Go DIRECTLY to login page, not homepage!
         login_url = f"https://visa.vfsglobal.com/tur/tr/{country_code.lower()}/login"
         
@@ -135,14 +141,15 @@ async def login_to_vfs(
         
         # 1. Go to login page
         try:
-            await page.goto(login_url, wait_until='networkidle', timeout=30000)
+            await page.goto(login_url, wait_until='networkidle', timeout=60000)  # 60 saniye
             print("✅ Login page loaded")
         except Exception as e:
             print(f"❌ Could not load login page: {e}")
             return {
                 'success': False,
                 'message': f'Login page load failed: {str(e)}',
-                'otp_method': 'failed'
+                'otp_method': 'failed',
+                'debug': {'stage': 'page_load', 'url': login_url}
             }
         
         # 🔥 NEW: Wait for CloudFlare challenge to resolve (if present)
@@ -180,12 +187,23 @@ async def login_to_vfs(
                     return {
                         'success': False,
                         'message': 'CloudFlare challenge failed',
-                        'otp_method': 'failed'
+                        'otp_method': 'failed',
+                        'debug': {'stage': 'cloudflare_challenge'}
                     }
                 else:
                     print("✅ CloudFlare challenge passed!")
         except Exception as e:
-            print(f"⚠️  Could not check CloudFlare status: {e}")
+            # ✅ CRITICAL FIX: Check if page closed during CloudFlare check!
+            if 'closed' in str(e).lower() or 'target' in str(e).lower():
+                print(f"🔴 CRITICAL: Page closed during CloudFlare check!")
+                return {
+                    'success': False,
+                    'message': f'Page closed during CloudFlare check: {str(e)}',
+                    'otp_method': 'failed',
+                    'debug': {'stage': 'cloudflare_check_error'}
+                }
+            else:
+                print(f"⚠️  Could not check CloudFlare status: {e}")
         
         # Wait for page to settle
         await human_like_delay(2000, 4000)
@@ -215,6 +233,20 @@ async def login_to_vfs(
         # 🔥 NEW: Wait for Angular/React app to hydrate (JavaScript execution)
         print("⏳ Waiting for JavaScript to hydrate DOM (Angular/React SPA)...")
         
+        # ✅ CRITICAL FIX: Check if page is still alive BEFORE waiting
+        try:
+            await page.evaluate("() => 1")  # Simple alive check
+            print("✅ Page is alive and responsive")
+        except Exception as e:
+            print(f"🔴 CRITICAL: Page already closed before selector wait!")
+            print(f"   Error: {e}")
+            return {
+                'success': False,
+                'message': f'Page closed unexpectedly before JavaScript wait: {str(e)}',
+                'otp_method': 'failed',
+                'debug': {'stage': 'pre_selector_wait'}
+            }
+        
         # Try to wait for email input with multiple selectors
         email_input_ready = False
         email_selectors_to_try = [
@@ -227,22 +259,53 @@ async def login_to_vfs(
         for selector in email_selectors_to_try:
             try:
                 print(f"   🔍 Trying to wait for: {selector}")
-                await page.wait_for_selector(selector, timeout=20000)  # ✅ 20 saniye (10s → 20s)
+                await page.wait_for_selector(selector, timeout=20000, state='visible')
                 print(f"   ✅ Found email input: {selector}")
                 email_input_ready = True
                 break
-            except Exception as e:
-                print(f"   ⏭️  Selector {selector} not found, trying next...")
+            except TimeoutError:
+                print(f"   ⏭️  Selector {selector} timeout, trying next...")
                 continue
+            except Exception as e:
+                # ✅ CRITICAL FIX: Check if browser/page closed!
+                if 'closed' in str(e).lower() or 'target' in str(e).lower():
+                    print(f"   🔴 CRITICAL: Browser/Page closed while waiting for {selector}!")
+                    print(f"      Error: {e}")
+                    return {
+                        'success': False,
+                        'message': f'Browser/Page closed during selector wait: {str(e)}',
+                        'otp_method': 'failed',
+                        'debug': {'stage': 'selector_wait', 'selector': selector}
+                    }
+                else:
+                    print(f"   ⚠️  Selector {selector} error: {e}, trying next...")
+                    continue
         
-        # ✅ CRITICAL FIX: Indentation düzeltildi!
+        # ✅ CRITICAL FIX: Improved JavaScript wait with page alive checks
         if not email_input_ready:
             print("   ⚠️  No email input found via wait_for_selector, trying longer wait...")
-            
-            # Try waiting for JavaScript to execute (up to 30 seconds)
             print("   🔄 Waiting up to 30 seconds for JavaScript to execute...")
             
             for attempt in range(6):  # 6 attempts x 5 seconds = 30 seconds
+                # ✅ CRITICAL FIX: Check if page is still alive FIRST!
+                try:
+                    await page.evaluate("() => 1")  # Simple alive check
+                    print(f"   ✅ [Attempt {attempt + 1}/6] Page is still alive")
+                except Exception as e:
+                    print(f"   🔴 CRITICAL: Page closed at attempt {attempt + 1}!")
+                    print(f"      Error: {e}")
+                    return {
+                        'success': False,
+                        'message': f'Browser/Page closed during JavaScript wait (attempt {attempt + 1}): {str(e)}',
+                        'otp_method': 'failed',
+                        'debug': {
+                            'stage': 'javascript_wait',
+                            'attempt': attempt + 1,
+                            'waited_seconds': attempt * 5
+                        }
+                    }
+                
+                # Wait 5 seconds
                 await asyncio.sleep(5)
                 
                 # Check if email input appeared
@@ -261,7 +324,17 @@ async def login_to_vfs(
                     else:
                         print(f"   ⏳ Attempt {attempt + 1}/6: Still no email input...")
                 except Exception as e:
-                    print(f"   ⚠️  Attempt {attempt + 1}/6: Page evaluation failed: {e}")
+                    # Check if page closed
+                    if 'closed' in str(e).lower() or 'target' in str(e).lower():
+                        print(f"   🔴 Page closed during evaluation at attempt {attempt + 1}!")
+                        return {
+                            'success': False,
+                            'message': f'Page closed during JavaScript evaluation: {str(e)}',
+                            'otp_method': 'failed',
+                            'debug': {'stage': 'js_evaluation', 'attempt': attempt + 1}
+                        }
+                    else:
+                        print(f"   ⚠️  Attempt {attempt + 1}/6: Page evaluation failed: {e}")
             
             # ✅ CRITICAL FIX: Bu if artık for loop'un DIŞINDA!
             if not email_input_ready:
@@ -284,6 +357,7 @@ async def login_to_vfs(
                     'message': 'JavaScript execution failed - email input never appeared after 30s wait',
                     'otp_method': 'failed',
                     'debug': {
+                        'stage': 'javascript_timeout',
                         'waited_seconds': 30,
                         'selectors_tried': email_selectors_to_try
                     }
@@ -386,8 +460,19 @@ async def login_to_vfs(
                     await human_like_delay(1000, 2000)
                     print("✅ Cookie accepted")
                     break
-            except:
-                continue
+            except Exception as e:
+                # ✅ IMPROVED: Check if page closed during cookie handling
+                if 'closed' in str(e).lower() or 'target' in str(e).lower():
+                    print(f"🔴 Page closed during cookie consent check!")
+                    return {
+                        'success': False,
+                        'message': f'Page closed during cookie consent: {str(e)}',
+                        'otp_method': 'failed',
+                        'debug': {'stage': 'cookie_consent'}
+                    }
+                else:
+                    print(f"⚠️  Cookie consent error: {e}")
+                    continue
         
         # 2. Fill login form
         print("📧 Step 2/5: Entering email and password")
@@ -403,12 +488,22 @@ async def login_to_vfs(
         email_found = False
         for selector in email_selectors:
             try:
-                if await page.locator(selector).count() > 0:
+                # ✅ IMPROVED: Check visibility before typing
+                if await page.locator(selector).is_visible():
                     await human_like_typing(page, selector, email)
                     print(f"✅ Email entered via {selector}")
                     email_found = True
                     break
-            except:
+            except Exception as e:
+                print(f"⚠️  Could not enter email via {selector}: {e}")
+                # ✅ IMPROVED: Check if page closed
+                if 'closed' in str(e).lower() or 'target' in str(e).lower():
+                    return {
+                        'success': False,
+                        'message': f'Page closed during email input: {str(e)}',
+                        'otp_method': 'failed',
+                        'debug': {'stage': 'email_input', 'selector': selector}
+                    }
                 continue
         
         if not email_found:
@@ -431,7 +526,11 @@ async def login_to_vfs(
             return {
                 'success': False,
                 'message': 'Email input field not found',
-                'otp_method': 'failed'
+                'otp_method': 'failed',
+                'debug': {
+                    'stage': 'email_field_not_found',
+                    'selectors_tried': email_selectors
+                }
             }
         
         await human_like_delay(500, 1000)
@@ -446,11 +545,21 @@ async def login_to_vfs(
         
         for selector in password_selectors:
             try:
-                if await page.locator(selector).count() > 0:
+                # ✅ IMPROVED: Check visibility before typing
+                if await page.locator(selector).is_visible():
                     await human_like_typing(page, selector, password)
                     print(f"✅ Password entered via {selector}")
                     break
-            except:
+            except Exception as e:
+                print(f"⚠️  Could not enter password via {selector}: {e}")
+                # ✅ IMPROVED: Check if page closed
+                if 'closed' in str(e).lower() or 'target' in str(e).lower():
+                    return {
+                        'success': False,
+                        'message': f'Page closed during password input: {str(e)}',
+                        'otp_method': 'failed',
+                        'debug': {'stage': 'password_input', 'selector': selector}
+                    }
                 continue
         
         await human_like_delay(1000, 2000)
@@ -469,7 +578,15 @@ async def login_to_vfs(
                     print("🚀 Step 3/5: Submitting login form")
                     await click_with_human_behavior(page, selector)
                     break
-            except:
+            except Exception as e:
+                print(f"⚠️  Submit button error: {e}")
+                if 'closed' in str(e).lower():
+                    return {
+                        'success': False,
+                        'message': f'Page closed during form submit: {str(e)}',
+                        'otp_method': 'failed',
+                        'debug': {'stage': 'form_submit'}
+                    }
                 continue
         
         # Wait for OTP page
@@ -514,7 +631,8 @@ async def login_to_vfs(
             return {
                 'success': False,
                 'message': 'OTP not provided',
-                'otp_method': otp_method
+                'otp_method': otp_method,
+                'debug': {'stage': 'otp_not_provided'}
             }
         
         # 4. Enter OTP
@@ -534,7 +652,15 @@ async def login_to_vfs(
                     await human_like_typing(page, selector, otp_code)
                     print(f"✅ OTP entered via {selector}")
                     break
-            except:
+            except Exception as e:
+                print(f"⚠️  OTP input error: {e}")
+                if 'closed' in str(e).lower():
+                    return {
+                        'success': False,
+                        'message': f'Page closed during OTP input: {str(e)}',
+                        'otp_method': otp_method,
+                        'debug': {'stage': 'otp_input'}
+                    }
                 continue
         
         await human_like_delay(500, 1000)
@@ -553,7 +679,15 @@ async def login_to_vfs(
                     print("✅ Submitting OTP")
                     await click_with_human_behavior(page, selector)
                     break
-            except:
+            except Exception as e:
+                print(f"⚠️  OTP submit error: {e}")
+                if 'closed' in str(e).lower():
+                    return {
+                        'success': False,
+                        'message': f'Page closed during OTP submit: {str(e)}',
+                        'otp_method': otp_method,
+                        'debug': {'stage': 'otp_submit'}
+                    }
                 continue
         
         # Wait for redirect to dashboard
@@ -587,7 +721,8 @@ async def login_to_vfs(
             return {
                 'success': False,
                 'message': 'Login failed - could not reach dashboard',
-                'otp_method': otp_method
+                'otp_method': otp_method,
+                'debug': {'stage': 'dashboard_not_found'}
             }
         
     except Exception as e:
@@ -597,7 +732,8 @@ async def login_to_vfs(
         return {
             'success': False,
             'message': f'Login error: {str(e)}',
-            'otp_method': 'failed'
+            'otp_method': 'failed',
+            'debug': {'stage': 'exception', 'error': str(e)}
         }
 
 
@@ -623,6 +759,11 @@ async def ensure_logged_in(
     """
     page = await context.new_page()
     await stealth_async(page)
+    
+    # ✅ CRITICAL FIX: Set context-level timeouts
+    print("⚙️  Setting context-level timeouts (2 minutes)...")
+    context.set_default_timeout(120000)  # 2 dakika
+    context.set_default_navigation_timeout(120000)  # 2 dakika
     
     # Try to restore session
     if session_data and is_session_valid(session_data):
