@@ -133,12 +133,11 @@ async def login_to_vfs(
             });
         """)
         
-        # 1. Go to login page
+       # 1. Go to login page
         try:
-            await page.goto(login_url, wait_until='networkidle', timeout=30000)
+            # Increase timeout to 60 seconds (proxy can be slow)
+            await page.goto(login_url, wait_until='networkidle', timeout=60000)
             print("✅ Login page loaded")  # Changed to print
-        except Exception as e:
-            print(f"❌ Could not load login page: {e}")  # Changed to print
             return {
                 'success': False,
                 'message': f'Login page load failed: {str(e)}',
@@ -190,7 +189,47 @@ async def login_to_vfs(
         # Wait for page to settle
         await human_like_delay(2000, 4000)
         
+         # Wait for page to settle
+        await human_like_delay(2000, 4000)
+        
         print("📍 Step 1/6: Login page ready")
+        
+        # 🔥 DEBUG: Get HTML BEFORE JavaScript wait (to see what CloudFlare returned)
+        try:
+            page_html_early = await page.content()
+            print(f"📄 [EARLY CHECK] Page HTML length: {len(page_html_early)} characters")
+            print(f"📄 [EARLY CHECK] Page HTML preview (first 1000 chars):")
+            print(page_html_early[:1000])
+            
+            page_title_early = await page.title()
+            page_url_early = page.url
+            print(f"📄 [EARLY CHECK] Page title: {page_title_early}")
+            print(f"📄 [EARLY CHECK] Current URL: {page_url_early}")
+            
+            # Check if CloudFlare is STILL blocking
+            html_lower = page_html_early.lower()
+            if 'just a moment' in html_lower or 'checking your browser' in html_lower:
+                print("⚠️  [EARLY CHECK] CloudFlare STILL BLOCKING!")
+            
+            if 'maintenance' in html_lower or 'bakım' in html_lower:
+                print("⚠️  [EARLY CHECK] MAINTENANCE MODE!")
+                
+            # Take early screenshot
+            try:
+                await page.screenshot(path='/tmp/vfs_login_early.png')
+                print("📸 [EARLY CHECK] Screenshot saved: /tmp/vfs_login_early.png")
+            except Exception as e:
+                print(f"⚠️  [EARLY CHECK] Could not save screenshot: {e}")
+                
+        except Exception as e:
+            print(f"⚠️  [EARLY CHECK] Could not get page info: {e}")
+            # If we can't even get page content, browser is already closed!
+            print("🔴 CRITICAL: Browser/Page already closed before JavaScript wait!")
+            return {
+                'success': False,
+                'message': 'Browser closed unexpectedly (possible proxy timeout)',
+                'otp_method': 'failed'
+            }
         
         # 🔥 NEW: Wait for Angular/React app to hydrate (JavaScript execution)
         print("⏳ Waiting for JavaScript to hydrate DOM (Angular/React SPA)...")
