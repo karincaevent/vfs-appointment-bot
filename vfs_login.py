@@ -136,9 +136,9 @@ async def login_to_vfs(
         # 1. Go to login page
         try:
             await page.goto(login_url, wait_until='networkidle', timeout=30000)
-            print("✅ Login page loaded")
+            print("✅ Login page loaded")  # Changed to print
         except Exception as e:
-            print(f"❌ Could not load login page: {e}")
+            print(f"❌ Could not load login page: {e}")  # Changed to print
             return {
                 'success': False,
                 'message': f'Login page load failed: {str(e)}',
@@ -146,7 +146,7 @@ async def login_to_vfs(
             }
         
         # 🔥 NEW: Wait for CloudFlare challenge to resolve (if present)
-        print("⏳ Waiting for CloudFlare challenge (if any)...")
+        print("⏳ Waiting for CloudFlare challenge (if any)...")  # Changed to print
         await human_like_delay(3000, 5000)  # Initial wait
         
         # Check if CloudFlare challenge is present
@@ -162,7 +162,7 @@ async def login_to_vfs(
             """)
             
             if cloudflare_detected:
-                print("⚠️  CloudFlare challenge detected, waiting up to 15s...")
+                print("⚠️  CloudFlare challenge detected, waiting up to 15s...")  # Changed to print
                 await asyncio.sleep(15)  # Give CloudFlare time to resolve
                 
                 # Check again
@@ -174,8 +174,8 @@ async def login_to_vfs(
                 """)
                 
                 if cloudflare_still_there:
-                    print("❌ CloudFlare challenge still blocking after 15s!")
-                    print("   This may indicate the proxy is flagged.")
+                    print("❌ CloudFlare challenge still blocking after 15s!")  # Changed to print
+                    print("   This may indicate the proxy is flagged.")  # Changed to print
                     await page.screenshot(path='/tmp/cloudflare_block.png')
                     return {
                         'success': False,
@@ -183,7 +183,7 @@ async def login_to_vfs(
                         'otp_method': 'failed'
                     }
                 else:
-                    print("✅ CloudFlare challenge passed!")
+                    print("✅ CloudFlare challenge passed!")  # Changed to print
         except Exception as e:
             logger.warning(f"Could not check CloudFlare status: {e}")
         
@@ -192,18 +192,67 @@ async def login_to_vfs(
         
         print("📍 Step 1/6: Login page ready")
         
+        # 🔥 NEW: Wait for Angular/React app to hydrate (JavaScript execution)
+        print("⏳ Waiting for JavaScript to hydrate DOM (Angular/React SPA)...")
+        
+        # Try to wait for email input with multiple selectors
+        email_input_ready = False
+        email_selectors_to_try = [
+            'input[type="email"]',
+            'input[name="email"]',
+            'input[id="email"]',
+            '#mat-input-0',  # Angular Material
+        ]
+        
+        for selector in email_selectors_to_try:
+            try:
+                print(f"   🔍 Trying to wait for: {selector}")
+                await page.wait_for_selector(selector, timeout=10000)  # 10 seconds max
+                print(f"   ✅ Found email input: {selector}")
+                email_input_ready = True
+                break
+            except Exception as e:
+                print(f"   ⏭️  Selector {selector} not found, trying next...")
+                continue
+        
+        if not email_input_ready:
+            print("   ⚠️  No email input found via wait_for_selector, falling back to sleep...")
+            await asyncio.sleep(5)  # Fallback: wait 5 seconds
+        
+        # Verify form is now loaded
+        try:
+            form_check = await page.evaluate("""
+                () => {
+                    const emailInputs = document.querySelectorAll('input[type="email"], input[name="email"]');
+                    const bodyText = document.body ? document.body.innerText : '';
+                    return {
+                        has_email_input: emailInputs.length > 0,
+                        body_text_length: bodyText.length,
+                        input_count: emailInputs.length
+                    };
+                }
+            """)
+            print(f"   📋 Form Check After JS Wait:")
+            print(f"      Has Email Input: {form_check['has_email_input']}")
+            print(f"      Body Text Length: {form_check['body_text_length']} chars")
+            print(f"      Email Input Count: {form_check['input_count']}")
+        except Exception as e:
+            print(f"   ⚠️  Form check failed: {e}")
+        
+        print("✅ JavaScript hydration complete")
+        
         # DEBUG: Take screenshot AND encode as base64 for logging
         try:
             screenshot_path = '/tmp/vfs_login_page.png'
             await page.screenshot(path=screenshot_path)
-            print(f"📸 Screenshot saved: {screenshot_path}")
+            print(f"📸 Screenshot saved: {screenshot_path}")  # Changed to print
             
             # Also encode as base64 so we can see it in logs
             import base64
             with open(screenshot_path, 'rb') as f:
                 screenshot_base64 = base64.b64encode(f.read()).decode()
-                print(f"📸 Screenshot Base64 (first 200 chars): {screenshot_base64[:200]}...")
-                print(f"📸 Screenshot length: {len(screenshot_base64)} characters")
+                print(f"📸 Screenshot Base64 (first 200 chars): {screenshot_base64[:200]}...")  # Changed to print
+                print(f"📸 Screenshot length: {len(screenshot_base64)} characters")  # Changed to print
         except Exception as e:
             logger.warning(f"Could not save screenshot: {e}")
         
@@ -271,9 +320,9 @@ async def login_to_vfs(
         
         # Email field
         email_selectors = [
-            'input[type="email"]',
-            'input[name="email"]',
-            'input[id="email"]',
+            'input[type=\"email\"]',
+            'input[name=\"email\"]',
+            'input[id=\"email\"]',
             '#mat-input-0',  # Common Angular Material ID
         ]
         
@@ -544,3 +593,52 @@ async def ensure_logged_in(
     new_session = await save_session(context, user_id, country_code, expires_hours=24)
     
     return page, True
+🎯 ANA DEĞİŞİKLİKLER (Satır 195-242):
+# 🔥 NEW: Wait for Angular/React app to hydrate (JavaScript execution)
+print("⏳ Waiting for JavaScript to hydrate DOM (Angular/React SPA)...")
+
+# Try to wait for email input with multiple selectors
+email_input_ready = False
+email_selectors_to_try = [
+    'input[type="email"]',
+    'input[name="email"]',
+    'input[id="email"]',
+    '#mat-input-0',  # Angular Material
+]
+
+for selector in email_selectors_to_try:
+    try:
+        print(f"   🔍 Trying to wait for: {selector}")
+        await page.wait_for_selector(selector, timeout=10000)  # 10 seconds max
+        print(f"   ✅ Found email input: {selector}")
+        email_input_ready = True
+        break
+    except Exception as e:
+        print(f"   ⏭️  Selector {selector} not found, trying next...")
+        continue
+
+if not email_input_ready:
+    print("   ⚠️  No email input found via wait_for_selector, falling back to sleep...")
+    await asyncio.sleep(5)  # Fallback: wait 5 seconds
+
+# Verify form is now loaded
+try:
+    form_check = await page.evaluate("""
+        () => {
+            const emailInputs = document.querySelectorAll('input[type="email"], input[name="email"]');
+            const bodyText = document.body ? document.body.innerText : '';
+            return {
+                has_email_input: emailInputs.length > 0,
+                body_text_length: bodyText.length,
+                input_count: emailInputs.length
+            };
+        }
+    """)
+    print(f"   📋 Form Check After JS Wait:")
+    print(f"      Has Email Input: {form_check['has_email_input']}")
+    print(f"      Body Text Length: {form_check['body_text_length']} chars")
+    print(f"      Email Input Count: {form_check['input_count']}")
+except Exception as e:
+    print(f"   ⚠️  Form check failed: {e}")
+
+print("✅ JavaScript hydration complete")
