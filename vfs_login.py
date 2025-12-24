@@ -255,9 +255,40 @@ async def login_to_vfs(
                 print(f"   ⏭️  Selector {selector} not found, trying next...")
                 continue
         
-        if not email_input_ready:
-            print("   ⚠️  No email input found via wait_for_selector, falling back to sleep...")
-            await asyncio.sleep(5)  # Fallback: wait 5 seconds
+         if not email_input_ready:
+            print("   ⚠️  No email input found via wait_for_selector, trying longer wait...")
+            
+            # Try waiting for JavaScript to execute (up to 30 seconds)
+            print("   🔄 Waiting up to 30 seconds for JavaScript to execute...")
+            
+            for attempt in range(6):  # 6 attempts x 5 seconds = 30 seconds
+                await asyncio.sleep(5)
+                
+                # Check if email input appeared
+                try:
+                    input_check = await page.evaluate("""
+                        () => {
+                            const inputs = document.querySelectorAll('input[type="email"], input[name="email"]');
+                            return inputs.length > 0;
+                        }
+                    """)
+                    
+                    if input_check:
+                        print(f"   ✅ Email input appeared after {(attempt + 1) * 5} seconds!")
+                        email_input_ready = True
+                        break
+                    else:
+                        print(f"   ⏳ Attempt {attempt + 1}/6: Still no email input...")
+                except:
+                    print(f"   ⚠️  Attempt {attempt + 1}/6: Page evaluation failed")
+            
+            if not email_input_ready:
+                print("   🔴 FAILED: Email input did not appear after 30 seconds!")
+                print("   🔴 This indicates JavaScript is NOT executing at all!")
+                print("   🔴 Possible reasons:")
+                print("      - Proxy is blocking JavaScript files")
+                print("      - Bot detection preventing JS execution")
+                print("      - VFS changed their anti-bot system")
         
         # Verify form is now loaded
         try:
