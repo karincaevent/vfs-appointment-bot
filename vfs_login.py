@@ -136,9 +136,9 @@ async def login_to_vfs(
         # 1. Go to login page
         try:
             await page.goto(login_url, wait_until='networkidle', timeout=30000)
-            logger.info("✅ Login page loaded")
+            print("✅ Login page loaded")
         except Exception as e:
-            logger.error(f"❌ Could not load login page: {e}")
+            print(f"❌ Could not load login page: {e}")
             return {
                 'success': False,
                 'message': f'Login page load failed: {str(e)}',
@@ -146,7 +146,7 @@ async def login_to_vfs(
             }
         
         # 🔥 NEW: Wait for CloudFlare challenge to resolve (if present)
-        logger.info("⏳ Waiting for CloudFlare challenge (if any)...")
+        print("⏳ Waiting for CloudFlare challenge (if any)...")
         await human_like_delay(3000, 5000)  # Initial wait
         
         # Check if CloudFlare challenge is present
@@ -162,7 +162,7 @@ async def login_to_vfs(
             """)
             
             if cloudflare_detected:
-                logger.info("⚠️  CloudFlare challenge detected, waiting up to 15s...")
+                print("⚠️  CloudFlare challenge detected, waiting up to 15s...")
                 await asyncio.sleep(15)  # Give CloudFlare time to resolve
                 
                 # Check again
@@ -174,8 +174,8 @@ async def login_to_vfs(
                 """)
                 
                 if cloudflare_still_there:
-                    logger.error("❌ CloudFlare challenge still blocking after 15s!")
-                    logger.error("   This may indicate the proxy is flagged.")
+                    print("❌ CloudFlare challenge still blocking after 15s!")
+                    print("   This may indicate the proxy is flagged.")
                     await page.screenshot(path='/tmp/cloudflare_block.png')
                     return {
                         'success': False,
@@ -183,65 +183,65 @@ async def login_to_vfs(
                         'otp_method': 'failed'
                     }
                 else:
-                    logger.info("✅ CloudFlare challenge passed!")
+                    print("✅ CloudFlare challenge passed!")
         except Exception as e:
             logger.warning(f"Could not check CloudFlare status: {e}")
         
         # Wait for page to settle
         await human_like_delay(2000, 4000)
         
-        logger.info("📍 Step 1/6: Login page ready")
+        print("📍 Step 1/6: Login page ready")
         
         # DEBUG: Take screenshot AND encode as base64 for logging
         try:
             screenshot_path = '/tmp/vfs_login_page.png'
             await page.screenshot(path=screenshot_path)
-            logger.info(f"📸 Screenshot saved: {screenshot_path}")
+            print(f"📸 Screenshot saved: {screenshot_path}")
             
             # Also encode as base64 so we can see it in logs
             import base64
             with open(screenshot_path, 'rb') as f:
                 screenshot_base64 = base64.b64encode(f.read()).decode()
-                logger.info(f"📸 Screenshot Base64 (first 200 chars): {screenshot_base64[:200]}...")
-                logger.info(f"📸 Screenshot length: {len(screenshot_base64)} characters")
+                print(f"📸 Screenshot Base64 (first 200 chars): {screenshot_base64[:200]}...")
+                print(f"📸 Screenshot length: {len(screenshot_base64)} characters")
         except Exception as e:
             logger.warning(f"Could not save screenshot: {e}")
         
         # DEBUG: Get page HTML content
         try:
             page_html = await page.content()
-            logger.info(f"📄 Page HTML length: {len(page_html)} characters")
-            logger.info(f"📄 Page HTML preview (first 1000 chars):")
-            logger.info(page_html[:1000])
+            print(f"📄 Page HTML length: {len(page_html)} characters")
+            print(f"📄 Page HTML preview (first 1000 chars):")
+            print(page_html[:1000])
             
             # Check for common bot detection indicators
             html_lower = page_html.lower()
             
             if 'cloudflare' in html_lower:
-                logger.info("ℹ️  Cloudflare detected (normal with proxy)")
+                print("ℹ️  Cloudflare detected (normal with proxy)")
             
             if 'verify you are human' in html_lower or 'turnstile' in html_lower:
-                logger.warning("⚠️  CAPTCHA/TURNSTILE DETECTED!")
+                print("⚠️  CAPTCHA/TURNSTILE DETECTED!")
             
             if 'access denied' in html_lower or '403' in html_lower:
-                logger.warning("⚠️  ACCESS DENIED detected!")
+                print("⚠️  ACCESS DENIED detected!")
             
             if 'bot' in html_lower and 'detected' in html_lower:
-                logger.warning("⚠️  BOT DETECTION message found!")
+                print("⚠️  BOT DETECTION message found!")
             
             if 'maintenance' in html_lower or 'bakım' in html_lower:
-                logger.warning("⚠️  MAINTENANCE MODE detected in HTML!")
+                print("⚠️  MAINTENANCE MODE detected in HTML!")
         except Exception as e:
             logger.warning(f"Could not get page HTML: {e}")
         
         # DEBUG: Page info
         try:
-            logger.info(f"📄 Page title: {await page.title()}")
-            logger.info(f"📄 Current URL: {page.url}")
+            print(f"📄 Page title: {await page.title()}")
+            print(f"📄 Current URL: {page.url}")
             
             # Check if we got redirected
             if 'login' not in page.url.lower():
-                logger.warning(f"⚠️  REDIRECTED! Expected /login but got: {page.url}")
+                print(f"⚠️  REDIRECTED! Expected /login but got: {page.url}")
         except Exception as e:
             logger.warning(f"Could not get page info: {e}")
         
