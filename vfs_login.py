@@ -101,8 +101,38 @@ async def login_to_vfs(
         print(f"🌍 Navigating DIRECTLY to login page: {login_url}")
         print("   Skipping homepage to avoid button detection issues")
         
-        # Apply stealth
+   # Apply stealth
         await stealth_async(page)
+
+        # 🔍 NETWORK LOGGING - Hangi dosyalar yükleniyor/engelleniyor?
+        print("\n🔍 ========== NETWORK LOGGING ENABLED ==========")
+
+        # Giden istekleri takip et
+        def log_request(request):
+            url_short = request.url[:120] if len(request.url) > 120 else request.url
+            print(f"🚀 >> {request.method:6s} | {request.resource_type:10s} | {url_short}")
+
+        page.on("request", log_request)
+
+        # Gelen cevapları takip et (Status code'ları yakala!)
+        def log_response(response):
+            url_short = response.url[:120] if len(response.url) > 120 else response.url
+            status_emoji = "✅" if response.ok else "❌"
+            print(f"{status_emoji} << {response.status:3d} | {response.url[:120]}")
+
+        page.on("response", log_response)
+
+        # Başarısız olan (Bloklanan) istekleri yakala
+        def log_failed_request(request):
+            url_short = request.url[:120] if len(request.url) > 120 else request.url
+            failure = request.failure
+            error_text = failure if failure else "Unknown error"
+            print(f"🔴 !! FAILED: {url_short}")
+            print(f"   └─ Error: {error_text}")
+
+        page.on("requestfailed", log_failed_request)
+
+        print("🔍 ===============================================\n")
         
         # 🔥 NEW: Additional anti-detection (WebDriver, Chrome object, etc.)
         await page.add_init_script("""
